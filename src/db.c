@@ -32,6 +32,8 @@
 #include <signal.h>
 #include <ctype.h>
 
+#include "redis_zmq.h"
+
 void SlotToKeyAdd(robj *key);
 void SlotToKeyDel(robj *key);
 
@@ -749,6 +751,8 @@ void propagateExpire(redisDb *db, robj *key) {
     if (server.aof_state != REDIS_AOF_OFF)
         feedAppendOnlyFile(server.delCommand,db->id,argv,2);
     replicationFeedSlaves(server.slaves,db->id,argv,2);
+
+    dispatchExpiryMessage(db, key);
 
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);

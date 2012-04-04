@@ -29,6 +29,7 @@
  */
 
 #include "redis.h"
+#include "redis_zmq.h"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -472,6 +473,16 @@ void loadServerConfigFromString(char *config) {
                 err = sentinelHandleConfiguration(argv+1,argc-1);
                 if (err) goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"expiry-zmq-endpoint") && argc <= 2) {
+            if (argc == 2) {
+              if (redis_zmq_endpoint)
+                zfree(redis_zmq_endpoint);
+              redis_zmq_endpoint = zstrdup(argv[1]);
+            } else {
+              redis_zmq_endpoint = NULL;
+            }
+        } else if (!strcasecmp(argv[0],"expiry-zmq-hwm") && argc == 2) {
+            redis_zmq_hwm = atoi(argv[1]);
         } else {
             err = "Bad directive or wrong number of arguments"; goto loaderr;
         }
