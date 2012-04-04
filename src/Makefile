@@ -9,11 +9,11 @@ DEPENDENCY_TARGETS=hiredis linenoise lua
 
 ifeq ($(uname_S),SunOS)
   CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -Wall -W -D__EXTENSIONS__ -D_XPG6
-  CCLINK?=-ldl -lnsl -lsocket -lm -lpthread
+  CCLINK?=-ldl -lnsl -lsocket -lm -lpthread -lzmq
   DEBUG?=-g -ggdb 
 else
   CFLAGS?=-std=c99 -pedantic $(OPTIMIZATION) -Wall -W $(ARCH) $(PROF)
-  CCLINK?=-lm -pthread
+  CCLINK?=-lm -pthread -lzmq
   DEBUG?=-g -rdynamic -ggdb 
 endif
 
@@ -57,7 +57,7 @@ CCLINK+= $(ALLOC_LINK)
 CFLAGS+= $(ALLOC_FLAGS)
 CCOPT= $(CFLAGS) $(ARCH) $(PROF)
 
-PREFIX= /usr/local
+PREFIX= /home/tsee/book/redis-install
 INSTALL_BIN= $(PREFIX)/bin
 INSTALL= cp -pf
 
@@ -73,7 +73,7 @@ QUIET_CC = @printf '    %b %b\n' $(CCCOLOR)CC$(ENDCOLOR) $(SRCCOLOR)$@$(ENDCOLOR
 QUIET_LINK = @printf '    %b %b\n' $(LINKCOLOR)LINK$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR);
 endif
 
-OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crc64.o
+OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o crc16.o endianconv.o slowlog.o scripting.o bio.o rio.o rand.o memtest.o crc64.o redis_zmq.o
 BENCHOBJ = ae.o anet.o redis-benchmark.o sds.o adlist.o zmalloc.o
 CLIOBJ = anet.o sds.o adlist.o redis-cli.o zmalloc.o release.o
 CHECKDUMPOBJ = redis-check-dump.o lzf_c.o lzf_d.o
@@ -109,7 +109,7 @@ config.o: config.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
 crc16.o: crc16.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
 db.o: db.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
-  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h redis_zmq.h
 debug.o: debug.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h sha1.h
 dict.o: dict.c fmacros.h dict.h zmalloc.h
@@ -140,6 +140,8 @@ redis-cli.o: redis-cli.c fmacros.h version.h ../deps/hiredis/hiredis.h \
 redis.o: redis.c redis.h fmacros.h config.h ae.h sds.h dict.h adlist.h \
   zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h \
   slowlog.h bio.h asciilogo.h
+redis_zmq.o: redis_zmq.c redis.h fmacros.h config.h dict.h adlist.h \
+  zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h rio.h
 release.o: release.c release.h
 replication.o: replication.c redis.h fmacros.h config.h ae.h sds.h dict.h \
   adlist.h zmalloc.h anet.h ziplist.h intset.h version.h util.h rdb.h \
