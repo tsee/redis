@@ -57,7 +57,7 @@ CCLINK+= $(ALLOC_LINK)
 CFLAGS+= $(ALLOC_FLAGS)
 CCOPT= $(CFLAGS) $(ARCH) $(PROF)
 
-PREFIX= /home/tsee/book/redis-install
+PREFIX= /usr/local
 INSTALL_BIN= $(PREFIX)/bin
 INSTALL= cp -pf
 
