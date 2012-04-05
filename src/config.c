@@ -345,13 +345,17 @@ void loadServerConfigFromString(char *config) {
             if ((server.stop_writes_on_bgsave_err = yesnotoi(argv[1])) == -1) {
                 err = "argument must be 'yes' or 'no'"; goto loaderr;
             }
-        } else if (!strcasecmp(argv[0],"expiry-zmq-endpoint") && argc <= 2) {
-            if (argc == 2) {
-              if (redis_zmq_endpoint)
-                zfree(redis_zmq_endpoint);
-              redis_zmq_endpoint = zstrdup(argv[1]);
-            } else {
-              redis_zmq_endpoint = NULL;
+        } else if (!strcasecmp(argv[0],"expiry-zmq-endpoints")) {
+            unsigned int iendpoint, old_num_endpoints;;
+
+            if (argc > 1) {
+                old_num_endpoints = redis_zmq_num_endpoints;
+                redis_zmq_num_endpoints += argc-1;
+                redis_zmq_endpoints = zrealloc(redis_zmq_endpoints, redis_zmq_num_endpoints * sizeof(char *));
+
+                for (iendpoint = 1; iendpoint <= redis_zmq_num_endpoints; ++iendpoint) {
+                    redis_zmq_endpoints[old_num_endpoints+iendpoint-1] = zstrdup(argv[iendpoint]);
+                }
             }
         } else if (!strcasecmp(argv[0],"expiry-zmq-hwm") && argc == 2) {
             redis_zmq_hwm = atoi(argv[1]);

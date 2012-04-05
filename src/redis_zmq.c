@@ -7,7 +7,8 @@ static void *redis_zmq_context = NULL;
 static void *redis_zmq_socket = NULL;
 static zmq_msg_t redis_zmq_msg;
 
-char *redis_zmq_endpoint = NULL;
+unsigned int redis_zmq_num_endpoints = 0;
+char **redis_zmq_endpoints = NULL;
 unsigned int redis_zmq_hwm = 0;
 
 /* 0MQ callback for freeing the msg buffer */
@@ -19,9 +20,10 @@ void my_msg_free (void *data, void *hint)
 
 
 /* Attempts to set up context, socket, connection. Don't call unless
- * redis_zmq_endpoint is not NULL. */
+ * redis_zmq_num_endpoints is not 0. */
 static void redis_zmq_init() {
     int status;
+    unsigned int iendpoint;
 
     if (redis_zmq_context == NULL) {
         redis_zmq_context = zmq_init(1);
@@ -38,12 +40,15 @@ static void redis_zmq_init() {
         }
         else {
             /* printf("SOCKET CREATED\n"); */
-            status = zmq_connect(redis_zmq_socket, redis_zmq_endpoint);
-            if (status != 0) {
-                zmq_close(redis_zmq_socket);
-                printf("Failed to connect 0MQ socket\n"); /* FIXME hobo logging */
+            for (iendpoint = 0; iendpoint < redis_zmq_num_endpoints; ++iendpoint) {
+                status = zmq_connect(redis_zmq_socket, redis_zmq_endpoints[iendpoint]);
+                if (status != 0) {
+                    zmq_close(redis_zmq_socket);
+                    printf("Failed to connect 0MQ socket\n"); /* FIXME hobo logging */
+                    break;
+                }
+                /* else {printf("SOCKET CONN\n"); } */
             }
-            /* else {printf("SOCKET CONN\n"); } */
         }
     }
 
@@ -64,7 +69,7 @@ void dispatchExpiryMessage(redisDb *db, robj *key) {
 
     /* Abuse endpoint setting to see whether we need to send
      * expiry messages at all. */
-    if (redis_zmq_endpoint == NULL)
+    if (redis_zmq_num_endpoints == 0)
         return;
 
     val = lookupKey(db, key); /* FIXME this updates expire time... Silly. *gnash teeth* */
