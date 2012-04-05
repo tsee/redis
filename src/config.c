@@ -400,6 +400,17 @@ void loadServerConfigFromString(char *config) {
               redis_zmq_endpoint = zstrdup(argv[1]);
             } else {
               redis_zmq_endpoint = NULL;
+        } else if (!strcasecmp(argv[0],"expiry-zmq-endpoints")) {
+            unsigned int iendpoint, old_num_endpoints;;
+
+            if (argc > 1) {
+                old_num_endpoints = redis_zmq_num_endpoints;
+                redis_zmq_num_endpoints += argc-1;
+                redis_zmq_endpoints = zrealloc(redis_zmq_endpoints, redis_zmq_num_endpoints * sizeof(char *));
+
+                for (iendpoint = 1; iendpoint <= redis_zmq_num_endpoints; ++iendpoint) {
+                    redis_zmq_endpoints[old_num_endpoints+iendpoint-1] = zstrdup(argv[iendpoint]);
+                }
             }
         } else if (!strcasecmp(argv[0],"expiry-zmq-hwm") && argc == 2) {
             redis_zmq_hwm = atoi(argv[1]);
