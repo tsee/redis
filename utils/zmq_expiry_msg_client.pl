@@ -4,7 +4,7 @@ use warnings;
 use ZeroMQ qw/:all/;
 my $cxt = ZeroMQ::Context->new;
 my $sock = $cxt->socket('SUB');
-$sock->bind("tcp://*:9998");
+$sock->connect("tcp://*:9998");
 
 $| = 1;
 
