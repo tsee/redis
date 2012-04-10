@@ -21,7 +21,7 @@ void my_msg_free (void *data, void *hint)
 
 /* Attempts to set up context, socket, connection. Don't call unless
  * redis_zmq_num_endpoints is not 0. */
-static void redis_zmq_init() {
+void redis_zmq_init() {
     int status;
     unsigned int iendpoint;
     redisLog(REDIS_DEBUG,"Initializing 0MQ for expiry.");

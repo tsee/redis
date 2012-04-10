@@ -51,6 +51,8 @@
 #include <sys/utsname.h>
 #include <locale.h>
 
+#include "redis_zmq.h"
+
 /* Our shared "common" objects */
 
 struct sharedObjectsStruct shared;
@@ -3022,6 +3024,10 @@ int main(int argc, char **argv) {
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
         if (server.sofd > 0)
             redisLog(REDIS_NOTICE,"The server is now ready to accept connections at %s", server.unixsocket);
+
+        /* Initialize 0MQ on-expire-msg infrastructure */
+        redis_zmq_init();
+
     } else {
         sentinelIsRunning();
     }
