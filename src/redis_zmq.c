@@ -9,7 +9,7 @@ static zmq_msg_t redis_zmq_msg;
 
 unsigned int redis_zmq_num_endpoints = 0;
 char **redis_zmq_endpoints = NULL;
-unsigned int redis_zmq_hwm = 0;
+uint64_t redis_zmq_hwm = 0;
 
 /* 0MQ callback for freeing the msg buffer */
 void my_msg_free (void *data, void *hint)
@@ -39,7 +39,11 @@ static void redis_zmq_init() {
             printf("Failed to init 0MQ socket\n"); /* FIXME hobo logging */
         }
         else {
-            /* printf("SOCKET CREATED\n"); */
+            if (zmq_setsockopt(redis_zmq_socket, ZMQ_HWM, &redis_zmq_hwm, sizeof(redis_zmq_hwm)) == -1) {
+                zmq_close(redis_zmq_socket);
+                redisLog(REDIS_WARNING,"Failed to set HWM on 0MQ socket with error %i", errno);
+                return;
+            }
             for (iendpoint = 0; iendpoint < redis_zmq_num_endpoints; ++iendpoint) {
                 status = zmq_connect(redis_zmq_socket, redis_zmq_endpoints[iendpoint]);
                 if (status != 0) {
