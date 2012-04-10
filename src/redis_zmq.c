@@ -24,19 +24,19 @@ void my_msg_free (void *data, void *hint)
 static void redis_zmq_init() {
     int status;
     unsigned int iendpoint;
+    redisLog(REDIS_DEBUG,"Initializing 0MQ for expiry.");
 
     if (redis_zmq_context == NULL) {
         redis_zmq_context = zmq_init(1);
         if (redis_zmq_context == NULL) {
-            printf("Failed to init 0MQ context\n"); /* FIXME hobo logging */
+            redisLog(REDIS_WARNING,"Failed to init 0MQ context");
         }
-        /* else {printf("CONTEXT CREATED\n"); } */
     }
 
     if (redis_zmq_socket == NULL && redis_zmq_context != NULL) {
         redis_zmq_socket = zmq_socket(redis_zmq_context, ZMQ_PUB);
         if (redis_zmq_socket == NULL) {
-            printf("Failed to init 0MQ socket\n"); /* FIXME hobo logging */
+            redisLog(REDIS_WARNING,"Failed to init 0MQ socket");
         }
         else {
             if (zmq_setsockopt(redis_zmq_socket, ZMQ_HWM, &redis_zmq_hwm, sizeof(redis_zmq_hwm)) == -1) {
@@ -48,10 +48,9 @@ static void redis_zmq_init() {
                 status = zmq_connect(redis_zmq_socket, redis_zmq_endpoints[iendpoint]);
                 if (status != 0) {
                     zmq_close(redis_zmq_socket);
-                    printf("Failed to connect 0MQ socket\n"); /* FIXME hobo logging */
+                    redisLog(REDIS_WARNING,"Failed to bind 0MQ socket");
                     break;
                 }
-                /* else {printf("SOCKET CONN\n"); } */
             }
         }
     }
@@ -128,7 +127,7 @@ void dispatchExpiryMessage(redisDb *db, robj *key) {
     /* 0MQ takes ownership of our buffer. */
     rc = zmq_msg_init_data(&redis_zmq_msg, buf, buf_ptr-buf, my_msg_free, NULL);
     if (rc != 0) {
-        printf("Failed to init data!\n");
+        redisLog(REDIS_WARNING,"Failed to init 0MQ msg with data! Dropping message!");
         return; /* PANIC! */
     }
 
