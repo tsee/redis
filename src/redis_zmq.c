@@ -34,7 +34,7 @@ void redis_zmq_init() {
     }
 
     if (redis_zmq_socket == NULL && redis_zmq_context != NULL) {
-        redis_zmq_socket = zmq_socket(redis_zmq_context, ZMQ_PUB);
+        redis_zmq_socket = zmq_socket(redis_zmq_context, ZMQ_PUSH);
         if (redis_zmq_socket == NULL) {
             redisLog(REDIS_WARNING,"Failed to init 0MQ socket");
         }
@@ -45,7 +45,8 @@ void redis_zmq_init() {
                 return;
             }
             for (iendpoint = 0; iendpoint < redis_zmq_num_endpoints; ++iendpoint) {
-                status = zmq_connect(redis_zmq_socket, redis_zmq_endpoints[iendpoint]);
+                /* status = zmq_connect(redis_zmq_socket, redis_zmq_endpoints[iendpoint]); */
+                status = zmq_bind(redis_zmq_socket, redis_zmq_endpoints[iendpoint]);
                 if (status != 0) {
                     zmq_close(redis_zmq_socket);
                     redisLog(REDIS_WARNING,"Failed to bind 0MQ socket");
