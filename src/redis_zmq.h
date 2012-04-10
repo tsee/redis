@@ -8,5 +8,6 @@ extern char **redis_zmq_endpoints;
 extern uint64_t redis_zmq_hwm;
 
 void dispatchExpiryMessage(redisDb *db, robj *key);
+void redis_zmq_init();
 
 #endif
