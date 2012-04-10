@@ -49,6 +49,8 @@
 #include <math.h>
 #include <sys/resource.h>
 
+#include "redis_zmq.h"
+
 /* Our shared "common" objects */
 
 struct sharedObjectsStruct shared;
@@ -2420,6 +2422,9 @@ int main(int argc, char **argv) {
             exit(1);
         }
     }
+
+    redis_zmq_init();
+
     if (server.ipfd > 0)
         redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
     if (server.sofd > 0)
