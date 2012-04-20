@@ -14,7 +14,8 @@ my $i = 0;
 while(1) {
   my $data = $sock->recv->data;
   next if not defined $data or length($data) == 0;
-  my ($key, $val) = unpack("L/aL/a", $data);
+  my ($type, $key, $val) = unpack("nL/aL/a", $data);
+  print "TYPE: " . $type . "\n";
   ++$i;
   print "$i key='$key' data='$val'\n"; #if not $i % 1000;
 }

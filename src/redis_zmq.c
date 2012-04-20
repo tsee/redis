@@ -3,6 +3,9 @@
 
 #include <zmq.h>
 
+#define REDIS_ZMQ_STRING_MSG 0
+#define REDIS_ZMQ_HASH_MSG 1
+
 static void *redis_zmq_context = NULL;
 static void *redis_zmq_socket = NULL;
 static zmq_msg_t redis_zmq_msg;
@@ -61,6 +64,58 @@ void redis_zmq_init() {
     return;
 }
 
+/* Just decodes an INT encoded string on demand */
+static inline void assertDecodedString(robj **o) {
+  if ((*o)->encoding == REDIS_ENCODING_INT)
+      *o = getDecodedObject(*o);
+}
+
+/* Helper function that serializes a single string key/value pair */
+static int assembleStringExpirationMessage(robj *key, robj *val, char **out_buf, size_t *out_len) {
+  uint32_t val_len, key_len;
+  char *buf, *buf_ptr;
+
+  assertDecodedString(&key);
+  assertDecodedString(&val);
+
+  if (key->encoding == REDIS_ENCODING_RAW) {
+      key_len = sdslen(key->ptr);
+  } else {
+      return -1; /* normally, panic */
+  }
+  if (val->encoding == REDIS_ENCODING_RAW) {
+      val_len = sdslen(val->ptr);
+  } else {
+      return -1; /* normally, panic */
+  }
+
+  /* malloc */
+  buf = zmalloc(sizeof(uint32_t) + key_len + sizeof(uint32_t) + val_len + sizeof(uint16_t));
+  buf_ptr = buf;
+
+  /* copy */
+  /* msg type */
+  ((uint16_t *)buf_ptr)[0] = (uint16_t)REDIS_ZMQ_STRING_MSG;
+  buf_ptr += sizeof(uint16_t);
+
+  /* keylen, key */
+  memcpy(buf_ptr, &key_len, sizeof(uint32_t));
+  buf_ptr += sizeof(uint32_t);
+  memcpy(buf_ptr, key->ptr, key_len);
+  buf_ptr += key_len;
+
+  /* value len, value */
+  memcpy(buf_ptr, &val_len, sizeof(uint32_t));
+  buf_ptr += sizeof(uint32_t);
+  memcpy(buf_ptr, val->ptr, val_len);
+  buf_ptr += val_len;
+
+  *out_buf = buf;
+  *out_len = buf_ptr - buf;
+
+  return 0;
+}
+
 /* Called from the propagateExpire function. Sends a 0MQ message
  * containing the unsigned 32bit (native endianess) key length,
  * the key string, the unsigned 32bit (native endianess) value length,
@@ -69,8 +124,9 @@ void redis_zmq_init() {
  * Handles only Redis "scalar" string values!
  */
 void dispatchExpiryMessage(redisDb *db, robj *key) {
-    char *buf, *buf_ptr;
-    uint32_t val_len, key_len, rc;
+    uint32_t rc;
+    size_t msg_len;
+    char *buf;
     robj *val;
 
     /* Abuse endpoint setting to see whether we need to send
@@ -86,49 +142,21 @@ void dispatchExpiryMessage(redisDb *db, robj *key) {
      * Also, the Redis functions that encode Redis data structures for output appear
      * to like writing to a global buffer. Probably missed something obvious in my
      * sleep-deprived stupor. */
-    if (val == NULL || val->type != REDIS_STRING)
+    if ( val == NULL
+         || (val->type != REDIS_STRING) )
         return;
 
     /* Set up context, socket, and connection. */
     redis_zmq_init();
 
     if (redis_zmq_socket == NULL)
-    return;
-    if (key->encoding == REDIS_ENCODING_INT)
-        key = getDecodedObject(key);
-    if (val->encoding == REDIS_ENCODING_INT)
-        val = getDecodedObject(val);
+      return;
 
-    if (key->encoding == REDIS_ENCODING_RAW) {
-        key_len = sdslen(key->ptr);
-    } else {
-        return; /* normally, panic */
-    }
-    if (val->encoding == REDIS_ENCODING_RAW) {
-        val_len = sdslen(val->ptr);
-    } else {
-        return; /* normally, panic */
-    }
-
-    /* malloc */
-    buf = zmalloc(sizeof(uint32_t) + key_len + sizeof(uint32_t) +val_len);
-    buf_ptr = buf;
-
-    /* copy */
-    /* keylen, key */
-    memcpy(buf_ptr, &key_len, sizeof(uint32_t));
-    buf_ptr += sizeof(uint32_t);
-    memcpy(buf_ptr, key->ptr, key_len);
-    buf_ptr += key_len;
-
-    /* value len, value */
-    memcpy(buf_ptr, &val_len, sizeof(uint32_t));
-    buf_ptr += sizeof(uint32_t);
-    memcpy(buf_ptr, val->ptr, val_len);
-    buf_ptr += val_len;
+    if (assembleStringExpirationMessage(key, val, &buf, &msg_len) != 0)
+      return; /* actually, panic */
 
     /* 0MQ takes ownership of our buffer. */
-    rc = zmq_msg_init_data(&redis_zmq_msg, buf, buf_ptr-buf, my_msg_free, NULL);
+    rc = zmq_msg_init_data(&redis_zmq_msg, buf, msg_len, my_msg_free, NULL);
     if (rc != 0) {
         redisLog(REDIS_WARNING,"Failed to init 0MQ msg with data! Dropping message!");
         return; /* PANIC! */
