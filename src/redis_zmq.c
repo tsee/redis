@@ -46,6 +46,8 @@ void redis_zmq_init() {
             }
             for (iendpoint = 0; iendpoint < redis_zmq_num_endpoints; ++iendpoint) {
                 /* status = zmq_connect(redis_zmq_socket, redis_zmq_endpoints[iendpoint]); */
+
+                redisLog(REDIS_NOTICE,"Binding 0MQ socket to '%s'", redis_zmq_endpoints[iendpoint]);
                 status = zmq_bind(redis_zmq_socket, redis_zmq_endpoints[iendpoint]);
                 if (status != 0) {
                     zmq_close(redis_zmq_socket);
