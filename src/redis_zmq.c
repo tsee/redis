@@ -70,7 +70,8 @@ static inline void assertDecodedString(robj **o) {
       *o = getDecodedObject(*o);
 }
 
-int assembleStringExpirationMessage(robj *key, robj *val, char **out_buf, size_t *out_len) {
+/* Helper function that serializes a single string key/value pair */
+static int assembleStringExpirationMessage(robj *key, robj *val, char **out_buf, size_t *out_len) {
   uint32_t val_len, key_len;
   char *buf, *buf_ptr;
 
