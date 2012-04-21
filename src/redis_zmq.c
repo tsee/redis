@@ -99,26 +99,23 @@ static int rio_write_value(rio *r, robj *o) {
                 fptr = ziplistNext(zl, fptr);
             }
         } else if (o->encoding == REDIS_ENCODING_HT) {
-            /*
-            dictIterator *di = dictGetIterator(o->ptr);
+            dict *d = o->ptr;
+            dictIterator *di = dictGetIterator(d);
             dictEntry *de;
 
-            if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) return -1;
+            if ((n = rio_write_size_t(r, dictSize(d))) == -1) return -1;
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
                 robj *key = dictGetKey(de);
                 robj *val = dictGetVal(de);
 
-                if ((n = rdbSaveStringObject(rdb,key)) == -1) return -1;
+                if ((n = rio_write_string_object(r, key)) == -1) return -1;
                 nwritten += n;
-                if ((n = rdbSaveStringObject(rdb,val)) == -1) return -1;
+                if ((n = rio_write_string_object(r, val)) == -1) return -1;
                 nwritten += n;
             }
             dictReleaseIterator(di);
-            FIXME
-            */
-
         } else {
             redisPanic("Unknown hash encoding");
         }
