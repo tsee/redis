@@ -3,22 +3,53 @@
 
 #include <zmq.h>
 
-#define REDIS_ZMQ_STRING_MSG 0
-#define REDIS_ZMQ_HASH_MSG 1
-
 static void *redis_zmq_context = NULL;
 static void *redis_zmq_socket = NULL;
-static zmq_msg_t redis_zmq_msg;
+/* static zmq_msg_t redis_zmq_msg; */
 
 unsigned int redis_zmq_num_endpoints = 0;
 char **redis_zmq_endpoints = NULL;
 uint64_t redis_zmq_hwm = 0;
 
-/* 0MQ callback for freeing the msg buffer */
-void my_msg_free (void *data, void *hint)
-{
-    hint = hint; /* silence warning */
-    zfree(data);
+int zeromqSend(char *str, size_t len, int flags, char *on_error) {
+    int rc;
+    /* size_t bytes; */
+    zmq_msg_t msg;
+    zmq_msg_init_size(&msg, len);
+    memcpy(zmq_msg_data(&msg), str, len);
+    /* bytes = zmq_msg_size(&msg); */
+    rc = zmq_send(redis_zmq_socket, &msg, flags);
+    zmq_msg_close(&msg);
+    if (rc == -1) {
+        redisLog(REDIS_WARNING, on_error, zmq_strerror(zmq_errno()));
+    }
+    return rc;
+}
+
+void zeromqDumpObject(redisDb *db, robj *key, robj *val) {
+    int rc_db, rc_event, rc_key, rc_val;
+    /* char event[2]; */
+    char db_num[2];
+    rio payload;
+
+    /* sprintf(event, "%d", key_event); */
+    sprintf(db_num, "%d", db->id);
+
+    if (val) {
+        rioInitWithBuffer(&payload,sdsempty());
+        redisAssertWithInfo(NULL, val,rdbSaveObjectType(&payload,val));
+        redisAssertWithInfo(NULL, val,rdbSaveObject(&payload,val) != -1);
+    }
+
+    rc_db = zeromqSend(db_num, (size_t)2, ZMQ_SNDMORE, "Could not send DB num: %s");
+    rc_key = zeromqSend((char *)key->ptr, (size_t)sdslen(key->ptr), (val? ZMQ_SNDMORE : 0), "Could not send key: %s");
+    rc_val = zeromqSend((char *)payload.io.buffer.ptr, (size_t)sdslen(payload.io.buffer.ptr), 0, "Could not send payload: %s");
+
+    if (val)
+        sdsfree(payload.io.buffer.ptr);
+/*    if (rc_db != -1 && rc_event != -1 && rc_key != -1 && rc_val != -1)
+        server.stat_zeromq_events++;
+*/
 }
 
 
@@ -64,119 +95,6 @@ void redis_zmq_init() {
     return;
 }
 
-/* Just decodes an INT encoded string on demand */
-static inline void assertDecodedString(robj **o) {
-    if ((*o)->encoding == REDIS_ENCODING_INT)
-        *o = getDecodedObject(*o);
-}
-
-/* Helper function that serializes a single string key/value pair */
-static int assembleStringExpirationMessage(robj *key, robj *val, char **out_buf, size_t *out_len) {
-    uint32_t val_len, key_len;
-    char *buf, *buf_ptr;
-
-    assertDecodedString(&key);
-    assertDecodedString(&val);
-
-    if (key->encoding == REDIS_ENCODING_RAW)
-        key_len = sdslen(key->ptr);
-    else
-        return -1; /* normally, panic */
-    if (val->encoding == REDIS_ENCODING_RAW)
-        val_len = sdslen(val->ptr);
-    else
-        return -1; /* normally, panic */
-
-    /* malloc */
-    buf = zmalloc(sizeof(uint32_t) + key_len + sizeof(uint32_t) + val_len + sizeof(uint16_t));
-    buf_ptr = buf;
-
-    /* copy */
-    /* msg type */
-    ((uint16_t *)buf_ptr)[0] = (uint16_t)REDIS_ZMQ_STRING_MSG;
-    buf_ptr += sizeof(uint16_t);
-
-    /* keylen, key */
-    memcpy(buf_ptr, &key_len, sizeof(uint32_t));
-    buf_ptr += sizeof(uint32_t);
-    memcpy(buf_ptr, key->ptr, key_len);
-    buf_ptr += key_len;
-
-    /* value len, value */
-    memcpy(buf_ptr, &val_len, sizeof(uint32_t));
-    buf_ptr += sizeof(uint32_t);
-    memcpy(buf_ptr, val->ptr, val_len);
-    buf_ptr += val_len;
-
-    *out_buf = buf;
-    *out_len = buf_ptr - buf;
-
-    return 0;
-}
-
-/* Helper function that serializes a Redis hash */
-static int assembleHashExpirationMessage(robj *key, robj *hash, char **out_buf, size_t *out_len) {
-    uint32_t val_len, key_len;
-    char *buf, *buf_ptr;
-    unsigned long nhashkeys;
-    hashTypeIterator *hiter;
-
-    assertDecodedString(&key);
-
-    if (key->encoding == REDIS_ENCODING_RAW)
-        key_len = sdslen(key->ptr);
-    else
-        return -1; /* normally, panic */
-
-    val_len = 0;
-    nhashkeys = hashTypeLength(hash);
-    hiter = hashTypeInitIterator(hash);
-    while (hashTypeNext(hiter) != REDIS_ERR) {
-
-        if (flags & REDIS_HASH_KEY) {
-            addHashIteratorCursorToReply(c, hi, REDIS_HASH_KEY);
-            count++;
-        }
-        if (flags & REDIS_HASH_VALUE) {
-            addHashIteratorCursorToReply(c, hi, REDIS_HASH_VALUE);
-            count++;
-        }
-    }
-    hashTypeReleaseIterator(hiter);
-
-    if (val->encoding == REDIS_ENCODING_RAW) {
-        val_len = sdslen(val->ptr);
-    } else {
-        return -1; /* normally, panic */
-    }
-
-    /* malloc */
-    buf = zmalloc(sizeof(uint32_t) + key_len + sizeof(uint32_t) + val_len + sizeof(uint16_t));
-    buf_ptr = buf;
-
-    /* copy */
-    /* msg type */
-    ((uint16_t *)buf_ptr)[0] = (uint16_t)REDIS_ZMQ_STRING_MSG;
-    buf_ptr += sizeof(uint16_t);
-
-    /* keylen, key */
-    memcpy(buf_ptr, &key_len, sizeof(uint32_t));
-    buf_ptr += sizeof(uint32_t);
-    memcpy(buf_ptr, key->ptr, key_len);
-    buf_ptr += key_len;
-
-    /* value len, value */
-    memcpy(buf_ptr, &val_len, sizeof(uint32_t));
-    buf_ptr += sizeof(uint32_t);
-    memcpy(buf_ptr, val->ptr, val_len);
-    buf_ptr += val_len;
-
-    *out_buf = buf;
-    *out_len = buf_ptr - buf;
-
-    return 0;
-}
-
 /* Called from the propagateExpire function. Sends a 0MQ message
  * containing the unsigned 32bit (native endianess) key length,
  * the key string, the unsigned 32bit (native endianess) value length,
@@ -185,9 +103,9 @@ static int assembleHashExpirationMessage(robj *key, robj *hash, char **out_buf, 
  * Handles only Redis "scalar" string values!
  */
 void dispatchExpiryMessage(redisDb *db, robj *key) {
-    uint32_t rc;
-    size_t msg_len;
-    char *buf;
+    /* uint32_t rc; */
+    /* size_t msg_len; */
+    /* char *buf; */
     robj *val;
 
     /* Abuse endpoint setting to see whether we need to send
@@ -213,25 +131,7 @@ void dispatchExpiryMessage(redisDb *db, robj *key) {
     if (redis_zmq_socket == NULL)
         return;
 
-    if (val->type == REDIS_STRING) {
-        if (assembleStringExpirationMessage(key, val, &buf, &msg_len) != 0)
-            return; /* actually, panic */
-    }
-    else { /* HASH */
-        if (assembleHashExpirationMessage(key, val, &buf, &msg_len) != 0)
-            return; /* actually, panic */
-    }
-
-    /* 0MQ takes ownership of our buffer. */
-    rc = zmq_msg_init_data(&redis_zmq_msg, buf, msg_len, my_msg_free, NULL);
-    if (rc != 0) {
-        redisLog(REDIS_WARNING,"Failed to init 0MQ msg with data! Dropping message!");
-        return; /* PANIC! */
-    }
-
-    /* ... and finally dispatch the message ... */
-    zmq_send(redis_zmq_socket, &redis_zmq_msg, 0);
-    /* zmq_send(redis_zmq_socket, &redis_zmq_msg, ZMQ_NOBLOCK); */
+    zeromqDumpObject(db, key, val);
 
     return;
 }
