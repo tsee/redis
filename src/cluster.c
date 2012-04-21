@@ -1486,7 +1486,7 @@ void createDumpPayload(rio *payload, robj *o) {
     payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr,buf,2);
 
     /* CRC64 */
-    crc = crc64((unsigned char*)payload->io.buffer.ptr,
+    crc = crc64(0,(unsigned char*)payload->io.buffer.ptr,
                 sdslen(payload->io.buffer.ptr));
     memrev64ifbe(&crc);
     payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr,&crc,8);
@@ -1510,7 +1510,7 @@ int verifyDumpPayload(unsigned char *p, size_t len) {
     if (rdbver != REDIS_RDB_VERSION) return REDIS_ERR;
 
     /* Verify CRC64 */
-    crc = crc64(p,len-8);
+    crc = crc64(0,p,len-8);
     memrev64ifbe(&crc);
     return (memcmp(&crc,footer+2,8) == 0) ? REDIS_OK : REDIS_ERR;
 }
@@ -1586,7 +1586,7 @@ void migrateCommand(redisClient *c) {
     int fd;
     long timeout;
     long dbid;
-    long long ttl, expireat;
+    long long ttl = 0, expireat;
     robj *o;
     rio cmd, payload;
 
@@ -1633,7 +1633,7 @@ void migrateCommand(redisClient *c) {
     redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"RESTORE",7));
     redisAssertWithInfo(c,NULL,c->argv[3]->encoding == REDIS_ENCODING_RAW);
     redisAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,c->argv[3]->ptr,sdslen(c->argv[3]->ptr)));
-    redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,(expireat==-1) ? 0 : ttl));
+    redisAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,ttl));
 
     /* Finally the last argument that is the serailized object payload
      * in the DUMP format. */

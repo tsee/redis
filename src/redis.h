@@ -89,7 +89,6 @@
 #define REDIS_SET 2
 #define REDIS_ZSET 3
 #define REDIS_HASH 4
-#define REDIS_VMPOINTER 8
 
 /* Objects encoding. Some kind of objects like Strings and Hashes can be
  * internally represented in multiple ways. The 'encoding' field of the object
@@ -647,6 +646,7 @@ struct redisServer {
     int saveparamslen;              /* Number of saving points */
     char *rdb_filename;             /* Name of RDB file */
     int rdb_compression;            /* Use compression in RDB? */
+    int rdb_checksum;               /* Use RDB checksum? */
     time_t lastsave;                /* Unix time of last save succeeede */
     int lastbgsave_status;          /* REDIS_OK or REDIS_ERR */
     int stop_writes_on_bgsave_err;  /* Don't allow writes if can't BGSAVE */
@@ -828,7 +828,8 @@ extern dictType hashDictType;
 long long ustime(void);
 long long mstime(void);
 void getRandomHexChars(char *p, unsigned int len);
-uint64_t crc64(const unsigned char *s, uint64_t l);
+uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
+void exitFromChild(int retcode);
 
 /* networking.c -- Networking and Client related operations */
 redisClient *createClient(int fd);

@@ -1,4 +1,15 @@
 start_server {tags {"aofrw"}} {
+
+    test {Turning off AOF kills the background writing child if any} {
+        r config set appendonly yes
+        waitForBgrewriteaof r
+        r multi
+        r bgrewriteaof
+        r config set appendonly no
+        r exec
+        set result [exec cat [srv 0 stdout] | tail -n1]
+    } {*Killing*AOF*child*}
+
     foreach d {string int} {
         foreach e {ziplist linkedlist} {
             test "AOF rewrite of list with $e encoding, $d data" {
@@ -102,6 +113,32 @@ start_server {tags {"aofrw"}} {
                     error "assertion:$d1 is not equal to $d2"
                 }
             }
+        }
+    }
+
+    test {BGREWRITEAOF is delayed if BGSAVE is in progress} {
+        r multi
+        r bgsave
+        r bgrewriteaof
+        r info persistence
+        set res [r exec]
+        assert_match {*scheduled*} [lindex $res 1]
+        assert_match {*bgrewriteaof_scheduled:1*} [lindex $res 2]
+        while {[string match {*bgrewriteaof_scheduled:1*} [r info persistence]]} {
+            after 100
+        }
+    }
+
+    test {BGREWRITEAOF is refused if already in progress} {
+        catch {
+            r multi
+            r bgrewriteaof
+            r bgrewriteaof
+            r exec
+        } e
+        assert_match {*ERR*already*} $e
+        while {[string match {*bgrewriteaof_scheduled:1*} [r info persistence]]} {
+            after 100
         }
     }
 }
