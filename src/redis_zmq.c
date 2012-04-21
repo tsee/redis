@@ -3,6 +3,9 @@
 
 #include <zmq.h>
 
+#define REDIS_ZMQ_TYPE_STRING 0
+#define REDIS_ZMQ_TYPE_HASH 1
+
 static void *redis_zmq_context = NULL;
 static void *redis_zmq_socket = NULL;
 /* static zmq_msg_t redis_zmq_msg; */
@@ -10,6 +13,90 @@ static void *redis_zmq_socket = NULL;
 unsigned int redis_zmq_num_endpoints = 0;
 char **redis_zmq_endpoints = NULL;
 uint64_t redis_zmq_hwm = 0;
+
+/* write raw data to rio */
+static int rio_write_raw(rio *r, void *p, size_t len) {
+    if (r && rioWrite(r,p,len) == 0)
+        return -1;
+    return len;
+}
+
+/* write string to rio as string */
+static int rio_write_raw_string(rio *r, unsigned char *s, size_t len) {
+    int n, nwritten = 0;
+
+    /* Store verbatim */
+    if ((n = rio_write_raw(r, &len, sizeof(size_t))) == -1) return -1;
+    nwritten += n;
+    if (len > 0) {
+        if (rio_write_raw(r, s, len) == -1) return -1;
+        nwritten += len;
+    }
+    return nwritten;
+}
+
+/* from rdb.c */
+static int rio_write_string_object(rio *r, robj *obj) {
+    if (obj->encoding == REDIS_ENCODING_INT) {
+        /* Encode as string */
+        unsigned char buf[32];
+        int enclen;
+        enclen = ll2string((char*)buf, 32, (long)obj->ptr);
+        redisAssert(enclen < 32);
+        return rio_write_raw_string(r, buf, enclen);
+    } else if (obj->encoding == REDIS_ENCODING_RAW) {
+        return rio_write_raw_string(r, obj->ptr, sdslen(obj->ptr));
+    }
+    else {
+        redisPanic("Not a string encoding we can handle");
+    }
+}
+
+static int rio_write_value(rio *r, robj *o) {
+    int n, nwritten = 0;
+    if (o->type == REDIS_STRING) {
+        /* Save a string value */
+        if ((n = rio_write_string_object(r, o)) == -1) return -1;
+        nwritten += n;
+    } else if (o->type == REDIS_HASH) {
+        /* Save a hash value */
+        if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+            /*size_t l = ziplistBlobLen((unsigned char*)o->ptr);
+
+            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
+            nwritten += n;
+            */
+            /* FIXME */
+        } else if (o->encoding == REDIS_ENCODING_HT) {
+            /*
+            dictIterator *di = dictGetIterator(o->ptr);
+            dictEntry *de;
+
+            if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) return -1;
+            nwritten += n;
+
+            while((de = dictNext(di)) != NULL) {
+                robj *key = dictGetKey(de);
+                robj *val = dictGetVal(de);
+
+                if ((n = rdbSaveStringObject(rdb,key)) == -1) return -1;
+                nwritten += n;
+                if ((n = rdbSaveStringObject(rdb,val)) == -1) return -1;
+                nwritten += n;
+            }
+            dictReleaseIterator(di);
+            FIXME
+            */
+
+        } else {
+            redisPanic("Unknown hash encoding");
+        }
+    } else {
+        redisPanic("Unknown or unsupported object type");
+    }
+    return nwritten;
+}
+
 
 int zeromqSend(char *str, size_t len, int flags, char *on_error) {
     int rc;
@@ -27,26 +114,43 @@ int zeromqSend(char *str, size_t len, int flags, char *on_error) {
 }
 
 void zeromqDumpObject(redisDb *db, robj *key, robj *val) {
-    int rc_db, rc_event, rc_key, rc_val;
+    int rc;
     /* char event[2]; */
-    char db_num[2];
+    char header[4];
     rio payload;
+    rio keystr;
+    sds payload_buf = sdsempty();
+    sds keystr_buf = sdsempty();
+
+    rioInitWithBuffer(&payload, payload_buf);
+    rioInitWithBuffer(&keystr, keystr_buf);
 
     /* sprintf(event, "%d", key_event); */
-    sprintf(db_num, "%d", db->id);
-
-    if (val) {
-        rioInitWithBuffer(&payload,sdsempty());
-        redisAssertWithInfo(NULL, val,rdbSaveObjectType(&payload,val));
-        redisAssertWithInfo(NULL, val,rdbSaveObject(&payload,val) != -1);
+    ((uint16_t *)header)[0] = (uint16_t)db->id;
+    if (val->type == REDIS_STRING) {
+        ((uint16_t *)header)[1] = (uint16_t)REDIS_ZMQ_TYPE_STRING;
+    } else if (val->type == REDIS_HASH) {
+        ((uint16_t *)header)[1] = (uint16_t)REDIS_ZMQ_TYPE_HASH;
+    }
+    else {
+        redisPanic("Cannot handle types other than strings and hashes!");
     }
 
-    rc_db = zeromqSend(db_num, (size_t)2, ZMQ_SNDMORE, "Could not send DB num: %s");
-    rc_key = zeromqSend((char *)key->ptr, (size_t)sdslen(key->ptr), (val? ZMQ_SNDMORE : 0), "Could not send key: %s");
-    rc_val = zeromqSend((char *)payload.io.buffer.ptr, (size_t)sdslen(payload.io.buffer.ptr), 0, "Could not send payload: %s");
 
-    if (val)
-        sdsfree(payload.io.buffer.ptr);
+    /*if (val) {
+        rioInitWithBuffer(&payload,sdsempty());
+        redisAssertWithInfo(NULL, key, rio_write_string_object(&payload, key));
+        redisAssertWithInfo(NULL, val, rio_write_value(&payload, val) != -1);
+    }*/
+    redisAssertWithInfo(NULL, key, rio_write_string_object(&keystr, key) != -1);
+    redisAssertWithInfo(NULL, val, rio_write_value(&payload, val) != -1);
+
+    rc = zeromqSend(header, (size_t)4, ZMQ_SNDMORE, "Could not send header: %s");
+    rc = zeromqSend((char *)keystr.io.buffer.ptr, (size_t)sdslen(keystr.io.buffer.ptr), ZMQ_SNDMORE, "Could not send key: %s");
+    rc = zeromqSend((char *)payload.io.buffer.ptr, (size_t)sdslen(payload.io.buffer.ptr), 0, "Could not send payload: %s");
+
+    sdsfree(keystr.io.buffer.ptr);
+    sdsfree(payload.io.buffer.ptr);
 /*    if (rc_db != -1 && rc_event != -1 && rc_key != -1 && rc_val != -1)
         server.stat_zeromq_events++;
 */
