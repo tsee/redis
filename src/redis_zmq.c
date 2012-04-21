@@ -21,12 +21,17 @@ static int rio_write_raw(rio *r, void *p, size_t len) {
     return len;
 }
 
+/* write a length to rio */
+static inline int rio_write_size_t(rio *r, size_t num) {
+    return rio_write_raw(r, &num, sizeof(size_t));
+}
+
 /* write string to rio as string */
 static int rio_write_raw_string(rio *r, unsigned char *s, size_t len) {
     int n, nwritten = 0;
 
     /* Store verbatim */
-    if ((n = rio_write_raw(r, &len, sizeof(size_t))) == -1) return -1;
+    if ((n = rio_write_size_t(r, len)) == -1) return -1;
     nwritten += n;
     if (len > 0) {
         if (rio_write_raw(r, s, len) == -1) return -1;
@@ -35,19 +40,21 @@ static int rio_write_raw_string(rio *r, unsigned char *s, size_t len) {
     return nwritten;
 }
 
-/* from rdb.c */
+static int rio_write_longlong_as_string(rio *r, long long num) {
+    /* Encode as string */
+    unsigned char buf[32];
+    int enclen;
+    enclen = ll2string((char*)buf, 32, num);
+    redisAssert(enclen < 32);
+    return rio_write_raw_string(r, buf, enclen);
+}
+
 static int rio_write_string_object(rio *r, robj *obj) {
     if (obj->encoding == REDIS_ENCODING_INT) {
-        /* Encode as string */
-        unsigned char buf[32];
-        int enclen;
-        enclen = ll2string((char*)buf, 32, (long)obj->ptr);
-        redisAssert(enclen < 32);
-        return rio_write_raw_string(r, buf, enclen);
+        return rio_write_longlong_as_string(r, (long long)obj->ptr);
     } else if (obj->encoding == REDIS_ENCODING_RAW) {
         return rio_write_raw_string(r, obj->ptr, sdslen(obj->ptr));
-    }
-    else {
+    } else {
         redisPanic("Not a string encoding we can handle");
     }
 }
@@ -61,12 +68,36 @@ static int rio_write_value(rio *r, robj *o) {
     } else if (o->type == REDIS_HASH) {
         /* Save a hash value */
         if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-            /*size_t l = ziplistBlobLen((unsigned char*)o->ptr);
+            unsigned char *zl;
+            unsigned char *fptr;
+            unsigned int zl_len;
+            unsigned char *vstr = NULL;
+            unsigned int vlen = UINT_MAX;
+            long long vll = LLONG_MAX;
+            int ret;
 
-            if ((n = rdbSaveRawString(rdb,o->ptr,l)) == -1) return -1;
-            nwritten += n;
-            */
-            /* FIXME */
+            zl = o->ptr;
+            zl_len = ziplistLen(zl);
+            rio_write_size_t(r, (size_t)zl_len);
+
+            fptr = ziplistIndex(zl, 0);
+            /* ziplist element iteration, key and value treated the same -- a number or a string */
+            while (fptr != NULL) {
+                ret = ziplistGet(fptr, &vstr, &vlen, &vll);
+                redisAssert(ret);
+
+                if (vstr) {
+                    if ((n=rio_write_raw_string(r, vstr, vlen)) == -1)
+                        return -1;
+                    nwritten += n;
+                } else {
+                    if ((n=rio_write_longlong_as_string(r, vll)) == -1)
+                        return -1;
+                    nwritten += n;
+                }
+
+                fptr = ziplistNext(zl, fptr);
+            }
         } else if (o->encoding == REDIS_ENCODING_HT) {
             /*
             dictIterator *di = dictGetIterator(o->ptr);
