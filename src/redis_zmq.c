@@ -15,23 +15,23 @@ char **redis_zmq_endpoints = NULL;
 uint64_t redis_zmq_hwm = 0;
 
 /* write raw data to rio */
-static int rio_write_raw(rio *r, void *p, size_t len) {
-    if (r && rioWrite(r,p,len) == 0)
+static int rio_write_raw(rio *r, void *p, uint32_t len) {
+    if (r && rioWrite(r, p, len) == 0)
         return -1;
     return len;
 }
 
 /* write a length to rio */
-static inline int rio_write_size_t(rio *r, size_t num) {
-    return rio_write_raw(r, &num, sizeof(size_t));
+static inline int rio_write_unsigned_32bit(rio *r, uint32_t num) {
+    return rio_write_raw(r, &num, sizeof(uint32_t));
 }
 
 /* write string to rio as string */
-static int rio_write_raw_string(rio *r, unsigned char *s, size_t len) {
+static int rio_write_raw_string(rio *r, unsigned char *s, uint32_t len) {
     int n, nwritten = 0;
 
     /* Store verbatim */
-    if ((n = rio_write_size_t(r, len)) == -1) return -1;
+    if ((n = rio_write_unsigned_32bit(r, len)) == -1) return -1;
     nwritten += n;
     if (len > 0) {
         if (rio_write_raw(r, s, len) == -1) return -1;
@@ -78,7 +78,7 @@ static int rio_write_value(rio *r, robj *o) {
 
             zl = o->ptr;
             zl_len = ziplistLen(zl);
-            rio_write_size_t(r, (size_t)zl_len);
+            rio_write_unsigned_32bit(r, (uint32_t)zl_len);
 
             fptr = ziplistIndex(zl, 0);
             /* ziplist element iteration, key and value treated the same -- a number or a string */
@@ -103,7 +103,7 @@ static int rio_write_value(rio *r, robj *o) {
             dictIterator *di = dictGetIterator(d);
             dictEntry *de;
 
-            if ((n = rio_write_size_t(r, dictSize(d))) == -1) return -1;
+            if ((n = rio_write_unsigned_32bit(r, dictSize(d))) == -1) return -1;
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
@@ -153,7 +153,6 @@ void zeromqDumpObject(redisDb *db, robj *key, robj *val) {
     rioInitWithBuffer(&payload, payload_buf);
     rioInitWithBuffer(&keystr, keystr_buf);
 
-    /* sprintf(event, "%d", key_event); */
     ((uint16_t *)header)[0] = (uint16_t)db->id;
     if (val->type == REDIS_STRING) {
         ((uint16_t *)header)[1] = (uint16_t)REDIS_ZMQ_TYPE_STRING;
