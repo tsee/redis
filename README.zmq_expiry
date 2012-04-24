@@ -1,0 +1,49 @@
+This file explains how the custom 0MQ expiry code works.
+
+= Disclaimer:
+
+  This modified version of the Redis server supports a limited form of sending
+  messages when a key expires. This support is HIGHLY EXPERIMENTAL and NOT
+  SUPPORTED BY MAINLINE REDIS!
+
+= What does this do?
+
+If configured and enabled, this customization will send a 0MQ message for
+each expired key. Currently, this works for keys that are plain strings
+and for keys that are Redis hashes. It uses a 0MQ PUSH socket to send
+the message and binds to one or more addresses/ports. The endpoints to
+bind to and the high water mark for the socket are configurable in redis.conf.
+
+Messages about expiry are only sent on the master Redis instance, not on slaves.
+
+= The Message Protocol
+
+The expiry messages have three frames:
+
+  1) A header containing two unsigned shorts (16-bit, server-native endianness)
+     => The number of the database that the key was expired from.
+     => The type of the value that was expired. For now: 0 == string, 1 == hash
+  2) The name of the key.
+  3) The value that was stored under the key.
+
+The key name is encoded as its length followed by byte string.
+The length is an unsigned 32 bit integer in server-native endianness.
+The way the value is encoded depends on the value type. If it's a string value,
+then this is a string encoded in the same way as the key name in the key message
+frame. If it's a hash value, then it is encoded as follows:
+
+- Unsigned 32bit integer (again, server-native endianness) indicating the
+  number of keys PLUS the number of values (IOW this is always an even number).
+- For each key/value pair:
+  - An unsigned 32bit integer indicating the key string length.
+  - The key name as a byte string.
+  - An unsigned 32bit integer indicating the value string length.
+  - The value as a byte string.
+
+
+= Example
+
+An example listening client implemented in perl can be found at
+
+  utils/zmq_expiry_msg_client.pl
+
