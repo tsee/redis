@@ -103,7 +103,7 @@ static int rio_write_value(rio *r, robj *o) {
             dictIterator *di = dictGetIterator(d);
             dictEntry *de;
 
-            if ((n = rio_write_unsigned_32bit(r, dictSize(d))) == -1) return -1;
+            if ((n = rio_write_unsigned_32bit(r, dictSize(d)*2)) == -1) return -1;
             nwritten += n;
 
             while((de = dictNext(di)) != NULL) {
