@@ -629,7 +629,7 @@ void updateDictResizePolicy(void) {
  * it will get more aggressive to avoid that too much memory is used by
  * keys that can be removed from the keyspace. */
 void activeExpireCycle(void) {
-    int j;
+    int j, iteration = 0;
     long long start = ustime(), timelimit;
 
     /* We can use at max REDIS_EXPIRELOOKUPS_TIME_PERC percentage of CPU time
@@ -640,7 +640,7 @@ void activeExpireCycle(void) {
     if (timelimit <= 0) timelimit = 1;
 
     for (j = 0; j < server.dbnum; j++) {
-        int expired, iteration = 0;
+        int expired;
         redisDb *db = server.db+j;
 
         /* Continue to expire if at the end of the cycle more than 25%
@@ -656,6 +656,8 @@ void activeExpireCycle(void) {
             if (num && slots > DICT_HT_INITIAL_SIZE &&
                 (num*100/slots < 1)) break;
 
+            /* The main collection cycle. Sample random keys among keys
+             * with an expire set, checking for expired ones. */
             expired = 0;
 
             /* redisLog(REDIS_DEBUG, "NKeys eventually expiring: %i", num); */
@@ -686,7 +688,7 @@ void activeExpireCycle(void) {
              * expire. So after a given amount of milliseconds return to the
              * caller waiting for the other active expire cycle. */
             iteration++;
-            if ((iteration & 0xff) == 0 && /* Check once every 255 iterations */
+            if ((iteration & 0xf) == 0 && /* check once every 16 cycles. */
                 (ustime()-start) > timelimit) return;
         } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/8);
     }
