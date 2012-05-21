@@ -740,7 +740,9 @@ long long getExpire(redisDb *db, robj *key) {
  * AOF and the master->slave link guarantee operation ordering, everything
  * will be consistent even if we allow write operations against expiring
  * keys. */
-void propagateExpire(redisDb *db, robj *key) {
+/* Returns 0 if the key is not to be deleted after all. */
+int propagateExpire(redisDb *db, robj *key) {
+    int rv;
     robj *argv[2];
 
     argv[0] = shared.del;
@@ -752,10 +754,12 @@ void propagateExpire(redisDb *db, robj *key) {
         feedAppendOnlyFile(server.delCommand,db->id,argv,2);
     replicationFeedSlaves(server.slaves,db->id,argv,2);
 
-    dispatchExpiryMessage(db, key);
+    rv = dispatchExpiryMessage(db, key);
 
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);
+
+    return rv;
 }
 
 int expireIfNeeded(redisDb *db, robj *key) {
@@ -782,10 +786,16 @@ int expireIfNeeded(redisDb *db, robj *key) {
 
     /* Delete the key */
     server.stat_expiredkeys++;
-    propagateExpire(db,key);
-    notifyKeyspaceEvent(REDIS_NOTIFY_EXPIRED,
-        "expired",key,db->id);
-    return dbDelete(db,key);
+
+    if (propagateExpire(db,key) == 0) {
+        // FIXME should this fire "notifyKeyspaceEvent(REDIS_NOTIFY_EXPIRED,..." as well?
+        return 1;
+    }
+    else {
+        notifyKeyspaceEvent(REDIS_NOTIFY_EXPIRED,
+            "expired",key,db->id);
+        return dbDelete(db,key);
+    }
 }
 
 /*-----------------------------------------------------------------------------
