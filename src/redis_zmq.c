@@ -144,7 +144,7 @@ static int zeromqSend(char *str, size_t len, int flags, char *on_error) {
 static void zeromqDumpObject(redisDb *db, robj *key, robj *val) {
     int rc;
     /* char event[2]; */
-    char header[4];
+    uint16_t header[2];
     rio payload;
     rio keystr;
     sds payload_buf = sdsempty();
@@ -153,11 +153,11 @@ static void zeromqDumpObject(redisDb *db, robj *key, robj *val) {
     rioInitWithBuffer(&payload, payload_buf);
     rioInitWithBuffer(&keystr, keystr_buf);
 
-    ((uint16_t *)header)[0] = (uint16_t)db->id;
+    header[0] = (uint16_t)db->id;
     if (val->type == REDIS_STRING) {
-        ((uint16_t *)header)[1] = (uint16_t)REDIS_ZMQ_TYPE_STRING;
+        header[1] = (uint16_t)REDIS_ZMQ_TYPE_STRING;
     } else if (val->type == REDIS_HASH) {
-        ((uint16_t *)header)[1] = (uint16_t)REDIS_ZMQ_TYPE_HASH;
+        header[1] = (uint16_t)REDIS_ZMQ_TYPE_HASH;
     }
     else {
         redisPanic("Cannot handle types other than strings and hashes!");
@@ -172,7 +172,7 @@ static void zeromqDumpObject(redisDb *db, robj *key, robj *val) {
     redisAssertWithInfo(NULL, key, rio_write_string_object(&keystr, key) != -1);
     redisAssertWithInfo(NULL, val, rio_write_value(&payload, val) != -1);
 
-    rc = zeromqSend(header, (size_t)4, ZMQ_SNDMORE, "Could not send header: %s");
+    rc = zeromqSend((char *)header, (size_t)4, ZMQ_SNDMORE, "Could not send header: %s");
     rc = zeromqSend((char *)keystr.io.buffer.ptr, (size_t)sdslen(keystr.io.buffer.ptr), ZMQ_SNDMORE, "Could not send key: %s");
     rc = zeromqSend((char *)payload.io.buffer.ptr, (size_t)sdslen(payload.io.buffer.ptr), 0, "Could not send payload: %s");
 
