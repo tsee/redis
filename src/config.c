@@ -412,6 +412,12 @@ void loadServerConfigFromString(char *config) {
                     redis_zmq_endpoints[old_num_endpoints+iendpoint-1] = zstrdup(argv[iendpoint]);
                 }
             }
+        } else if (!strcasecmp(argv[0],"expiry-zmq-hash-max-expire-cycles") && argc == 2) {
+            redis_zmq_hash_max_expire_cycles = atoi(argv[1]);
+        } else if (!strcasecmp(argv[0],"expiry-zmq-hash-delay") && argc == 2) {
+            redis_zmq_hash_expire_delay_ms = atoi(argv[1]);
+        } else if (!strcasecmp(argv[0],"expiry-zmq-hash-delay-jitter") && argc == 2) {
+            redis_zmq_hash_expire_delay_jitter_ms = atoi(argv[1]);
         } else if (!strcasecmp(argv[0],"expiry-zmq-hwm") && argc == 2) {
             redis_zmq_hwm = atoi(argv[1]);
         } else {

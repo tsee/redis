@@ -1,5 +1,7 @@
 #include "redis_zmq.h"
 #include "sds.h"
+#include "dict.h"
+#include "zipmap.h"
 
 #include <zmq.h>
 
@@ -13,6 +15,10 @@ static void *redis_zmq_socket = NULL;
 unsigned int redis_zmq_num_endpoints = 0;
 char **redis_zmq_endpoints = NULL;
 uint64_t redis_zmq_hwm = 0;
+
+uint32_t redis_zmq_hash_max_expire_cycles = 0;
+uint32_t redis_zmq_hash_expire_delay_ms = 10*1000; /* 10s */
+uint32_t redis_zmq_hash_expire_delay_jitter_ms = 10*1000; /* 10s */
 
 /* write raw data to rio */
 static int rio_write_raw(rio *r, void *p, uint32_t len) {
@@ -226,14 +232,80 @@ void redis_zmq_init() {
     return;
 }
 
+/* Returns 0 for anything but hashes.
+ * For hashes, returns the number of elapsed expire cycles
+ * and increments the number if applicable. */
+static int redis_zmq_check_expire_cycles(redisDb *db, robj *key, robj *o) {
+    long long nexpirecycles = 0;
+    int need_reset_expire = 0;
+
+    if (o->type == REDIS_HASH) {
+        /* Save a hash value */
+        if (o->encoding == REDIS_ENCODING_ZIPLIST) {
+            unsigned char *zl;
+            unsigned char *val = NULL;
+            unsigned int vlen = UINT_MAX;
+            char buf[64];
+            int ret;
+
+            zl = o->ptr;
+            /* fetch num. expire cycles elapsed */
+            ret = zipmapGet(zl, (unsigned char *)"_expire_cycles", 14, &val, &vlen);
+            if (ret)
+                nexpirecycles = atoll((char *)val);
+
+            /* increment num. expire cycles */
+            if (nexpirecycles < redis_zmq_hash_max_expire_cycles) {
+                sprintf(buf, "%u", (unsigned int)(nexpirecycles+1));
+                zl = zipmapSet(zl, (unsigned char *)"_expire_cycles", 14, (unsigned char *)buf, strlen(buf), NULL);
+                o->ptr = zl;
+                need_reset_expire = 1;
+            }
+
+        } else if (o->encoding == REDIS_ENCODING_HT) {
+            dict *d = o->ptr;
+            unsigned char *val = NULL;
+            robj *newval;
+
+            val = dictFetchValue(d, "_expire_cycles");
+            if (val != NULL) {
+                redisAssert( getLongLongFromObject((robj *)val, &nexpirecycles) );
+            }
+            if (nexpirecycles < redis_zmq_hash_max_expire_cycles) {
+                newval = createStringObjectFromLongLong(nexpirecycles+1);
+                dictReplace(d, "_expire_cycles", newval);
+                /* FIXME check newval refcount */
+                need_reset_expire = 1;
+            }
+
+        } else {
+            redisPanic("Unknown hash encoding");
+        }
+    }
+
+    if (need_reset_expire != 0) {
+        long long when = mstime()
+                         + redis_zmq_hash_expire_delay_ms
+                         + (long long)(
+                            ((double)random() / (double)RAND_MAX)
+                            * (double)redis_zmq_hash_expire_delay_jitter_ms
+                           );
+        setExpire(db, key, when);
+    }
+
+    return (int)nexpirecycles;
+}
+
+
 /* Called from the propagateExpire function. Sends a 0MQ message
  * containing the unsigned 32bit (native endianess) key length,
  * the key string, the unsigned 32bit (native endianess) value length,
  * and the value string in that order.
  *
- * Handles only Redis "scalar" string values!
+ * Handles only Redis "scalar" string values and hashes!
  */
-void dispatchExpiryMessage(redisDb *db, robj *key) {
+/* Returns 0 if the key is not to be deleted after all */
+int dispatchExpiryMessage(redisDb *db, robj *key) {
     /* uint32_t rc; */
     /* size_t msg_len; */
     /* char *buf; */
@@ -242,7 +314,7 @@ void dispatchExpiryMessage(redisDb *db, robj *key) {
     /* Abuse endpoint setting to see whether we need to send
      * expiry messages at all. */
     if (redis_zmq_num_endpoints == 0)
-        return;
+        return 1;
 
     val = lookupKey(db, key); /* FIXME this updates expire time... Silly. *gnash teeth* */
 
@@ -254,16 +326,25 @@ void dispatchExpiryMessage(redisDb *db, robj *key) {
      * sleep-deprived stupor. */
     if ( val == NULL
          || (val->type != REDIS_STRING && val->type != REDIS_HASH) )
-        return;
+        return 1;
 
     /* Set up context, socket, and connection. */
     redis_zmq_init();
 
     if (redis_zmq_socket == NULL)
-        return;
+        return 1;
 
     zeromqDumpObject(db, key, val);
 
-    return;
+    /* Check whether we need to cycle the key back to the db and do so
+     * if necessary. */
+    if (redis_zmq_hash_max_expire_cycles != 0) {
+        int ncycles = redis_zmq_check_expire_cycles(db, key, val);
+        /* Do not delete if we haven't hit the cycle limit yet */
+        if (ncycles < redis_zmq_hash_max_expire_cycles)
+            return 0;
+    }
+
+    return 1;
 }
 
