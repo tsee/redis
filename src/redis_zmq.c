@@ -126,7 +126,7 @@ static int rio_write_value(rio *r, robj *o) {
 }
 
 
-int zeromqSend(char *str, size_t len, int flags, char *on_error) {
+static int zeromqSend(char *str, size_t len, int flags, char *on_error) {
     int rc;
     /* size_t bytes; */
     zmq_msg_t msg;
@@ -141,7 +141,7 @@ int zeromqSend(char *str, size_t len, int flags, char *on_error) {
     return rc;
 }
 
-void zeromqDumpObject(redisDb *db, robj *key, robj *val) {
+static void zeromqDumpObject(redisDb *db, robj *key, robj *val) {
     int rc;
     /* char event[2]; */
     char header[4];
