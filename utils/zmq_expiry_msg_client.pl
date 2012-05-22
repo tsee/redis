@@ -27,10 +27,10 @@ while(1) {
 
   my $value;
   if ($type == REDIS_ZMQ_TYPE_STRING) {
-    ($value) = unpack("V/A", $raw_data);
+    ($value) = unpack("V/A", $raw_value);
   }
   elsif ($type == REDIS_ZMQ_TYPE_HASH) {
-    my %h = unpack("V/(V/A)", $raw_data);
+    my %h = unpack("V/(V/A)", $raw_value);
     $value = \%h;
   }
   else {
