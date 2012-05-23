@@ -789,6 +789,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
 
     if (propagateExpire(db,key) == 0) {
         // FIXME should this fire "notifyKeyspaceEvent(REDIS_NOTIFY_EXPIRED,..." as well?
+        redisLog(REDIS_DEBUG, "Outermost layer: Not deleting key");
         return 1;
     }
     else {

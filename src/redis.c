@@ -648,16 +648,19 @@ void updateDictResizePolicy(void) {
 int activeExpireCycleTryExpire(redisDb *db, struct dictEntry *de, long long now) {
     long long t = dictGetSignedIntegerVal(de);
     if (now > t) {
+        int doExpire;
         sds key = dictGetKey(de);
         robj *keyobj = createStringObject(key,sdslen(key));
 
-        propagateExpire(db,keyobj);
+        doExpire = propagateExpire(db,keyobj);
+        if (doExpire != 0) { /* BLOCK NOT INDENTED TO AVOID CONFLICTS */
         dbDelete(db,keyobj);
         notifyKeyspaceEvent(REDIS_NOTIFY_EXPIRED,
             "expired",keyobj,db->id);
         decrRefCount(keyobj);
         server.stat_expiredkeys++;
-        return 1;
+        } /* BLOCK NOT INDENTED TO AVOID CONFLICTS */
+        return doExpire;
     } else {
         return 0;
     }
@@ -2728,10 +2731,11 @@ int freeMemoryIfNeeded(void) {
 
             /* Finally remove the selected key. */
             if (bestkey) {
+                int doExpire;
                 long long delta;
 
                 robj *keyobj = createStringObject(bestkey,sdslen(bestkey));
-                propagateExpire(db,keyobj);
+                doExpire = propagateExpire(db,keyobj);
                 /* We compute the amount of memory freed by dbDelete() alone.
                  * It is possible that actually the memory needed to propagate
                  * the DEL in AOF and replication link is greater than the one
@@ -2740,6 +2744,7 @@ int freeMemoryIfNeeded(void) {
                  *
                  * AOF and Output buffer memory will be freed eventually so
                  * we only care about memory used by the key space. */
+                if (doExpire != 0) { /* BLOCK NOT INDENTED TO AVOID CONFLICTS */
                 delta = (long long) zmalloc_used_memory();
                 dbDelete(db,keyobj);
                 delta -= (long long) zmalloc_used_memory();
@@ -2755,6 +2760,7 @@ int freeMemoryIfNeeded(void) {
                  * deliver data to the slaves fast enough, so we force the
                  * transmission here inside the loop. */
                 if (slaves) flushSlavesOutputBuffers();
+                } /* END OF if(doExpire) BLOCK NOT INDENTED TO AVOID CONFLICTS */
             }
         }
         if (!keys_freed) return REDIS_ERR; /* nothing to free... */
