@@ -232,6 +232,19 @@ void redis_zmq_init() {
     return;
 }
 
+
+
+static int getFromHashTable(robj *o, robj *field, robj **value) {
+    dictEntry *de;
+
+    redisAssert(o->encoding == REDIS_ENCODING_HT);
+
+    de = dictFind(o->ptr, field);
+    if (de == NULL) return -1;
+    *value = dictGetVal(de);
+    return 0;
+}
+
 /* Returns 0 for anything but hashes.
  * For hashes, returns the number of elapsed expire cycles
  * and increments the number if applicable. */
@@ -245,39 +258,67 @@ static int redis_zmq_check_expire_cycles(redisDb *db, robj *key, robj *o) {
             unsigned char *zl;
             unsigned char *val = NULL;
             unsigned int vlen = UINT_MAX;
+            long long vll = LLONG_MAX;
             char buf[64];
             int ret;
 
+            unsigned char *fptr;
+            unsigned char *vptr = NULL;
             zl = o->ptr;
-            /* fetch num. expire cycles elapsed */
-            ret = zipmapGet(zl, (unsigned char *)"_expire_cycles", 14, &val, &vlen);
-            if (ret)
-                nexpirecycles = atoll((char *)val);
+
+            fptr = ziplistIndex(zl, ZIPLIST_HEAD);
+            if (fptr != NULL) {
+                fptr = ziplistFind(fptr, (unsigned char *)"_expire_cycles", 14, 1);
+                if (fptr != NULL) {
+                    /* Grab pointer to the value (fptr points to the field) */
+                    vptr = ziplistNext(zl, fptr);
+                    redisAssert(vptr != NULL);
+                }
+            }
+
+            if (vptr != NULL) {
+                ret = ziplistGet(vptr, &val, &vlen, &vll);
+                redisAssert(ret);
+                nexpirecycles = val ? atoll((char *)val) : vll;
+            }
 
             /* increment num. expire cycles */
             if (nexpirecycles < redis_zmq_hash_max_expire_cycles) {
                 sprintf(buf, "%u", (unsigned int)(nexpirecycles+1));
-                zl = zipmapSet(zl, (unsigned char *)"_expire_cycles", 14, (unsigned char *)buf, strlen(buf), NULL);
+                if (nexpirecycles > 0) { /* already have a setting */
+                    zl = ziplistDelete(zl, &vptr);
+                    zl = ziplistInsert(zl, vptr, (unsigned char *)buf, strlen(buf));
+                }
+                else { /* need to set completely new key */
+                    /* Push new field/value pair onto the tail of the ziplist */
+                    zl = ziplistPush(zl, (unsigned char *)"_expire_cycles", 14, ZIPLIST_TAIL);
+                    zl = ziplistPush(zl, (unsigned char *)buf, strlen(buf), ZIPLIST_TAIL);
+                }
                 o->ptr = zl;
+
                 need_reset_expire = 1;
             }
 
         } else if (o->encoding == REDIS_ENCODING_HT) {
-            dict *d = o->ptr;
             unsigned char *val = NULL;
-            robj *newval;
+            robj *val2 = NULL;
+            robj *name = createStringObject("_expire_cycles", 14);
 
-            val = dictFetchValue(d, "_expire_cycles");
+            getFromHashTable(o, name, &val2);
+            if (val2 != NULL)
+                getLongLongFromObject(val2, &nexpirecycles);
+
             if (val != NULL) {
-                redisAssert( getLongLongFromObject((robj *)val, &nexpirecycles) );
+                redisAssert( getLongLongFromObject(val2, &nexpirecycles) );
             }
             if (nexpirecycles < redis_zmq_hash_max_expire_cycles) {
-                newval = createStringObjectFromLongLong(nexpirecycles+1);
-                dictReplace(d, "_expire_cycles", newval);
-                /* FIXME check newval refcount */
+                robj *newval = createStringObjectFromLongLong(nexpirecycles+1);;
+                hashTypeSet(o, name, newval);
+                decrRefCount(newval);
                 need_reset_expire = 1;
             }
 
+            decrRefCount(name);
         } else {
             redisPanic("Unknown hash encoding");
         }
@@ -341,8 +382,9 @@ int dispatchExpiryMessage(redisDb *db, robj *key) {
     if (redis_zmq_hash_max_expire_cycles != 0) {
         int ncycles = redis_zmq_check_expire_cycles(db, key, val);
         /* Do not delete if we haven't hit the cycle limit yet */
-        if (ncycles < redis_zmq_hash_max_expire_cycles)
+        if (ncycles < redis_zmq_hash_max_expire_cycles) {
             return 0;
+        }
     }
 
     return 1;
