@@ -533,6 +533,7 @@ int expireIfNeeded(redisDb *db, robj *key) {
     /* Delete the key */
     server.stat_expiredkeys++;
     if (propagateExpire(db,key) == 0) {
+        redisLog(REDIS_DEBUG, "Outermost layer: Not deleting key");
         return 1;
     }
     else {
