@@ -195,9 +195,9 @@ static void zeromqDumpObject(redisDb *db, robj *key, robj *val) {
 void redis_zmq_init() {
     int status;
     unsigned int iendpoint;
-    redisLog(REDIS_DEBUG,"Initializing 0MQ for expiry.");
 
     if (redis_zmq_context == NULL) {
+        redisLog(REDIS_VERBOSE, "Initializing 0MQ for expiry.");
         redis_zmq_context = zmq_init(1);
         if (redis_zmq_context == NULL) {
             redisLog(REDIS_WARNING,"Failed to init 0MQ context");
@@ -375,12 +375,15 @@ int dispatchExpiryMessage(redisDb *db, robj *key) {
     if (redis_zmq_socket == NULL)
         return 1;
 
+    redisLog(REDIS_DEBUG,"Sending Expire message");
     zeromqDumpObject(db, key, val);
 
     /* Check whether we need to cycle the key back to the db and do so
      * if necessary. */
-    if (redis_zmq_hash_max_expire_cycles != 0) {
+    if (val->type == REDIS_HASH && redis_zmq_hash_max_expire_cycles != 0) {
         int ncycles = redis_zmq_check_expire_cycles(db, key, val);
+        redisLog(REDIS_DEBUG, "Current expire cycles for key: %i", ncycles);
+
         /* Do not delete if we haven't hit the cycle limit yet */
         if (ncycles < redis_zmq_hash_max_expire_cycles) {
             return 0;
