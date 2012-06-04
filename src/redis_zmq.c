@@ -381,11 +381,11 @@ int dispatchExpiryMessage(redisDb *db, robj *key) {
     /* Check whether we need to cycle the key back to the db and do so
      * if necessary. */
     if (val->type == REDIS_HASH && redis_zmq_hash_max_expire_cycles != 0) {
-        int ncycles = redis_zmq_check_expire_cycles(db, key, val);
-        redisLog(REDIS_DEBUG, "Current expire cycles for key: %i", ncycles);
+        int ncycles_prev = redis_zmq_check_expire_cycles(db, key, val)+1;
+        redisLog(REDIS_DEBUG, "Current expire cycles for key: %i", ncycles_prev);
 
         /* Do not delete if we haven't hit the cycle limit yet */
-        if (ncycles < redis_zmq_hash_max_expire_cycles) {
+        if (ncycles_prev < redis_zmq_hash_max_expire_cycles) {
             return 0;
         }
     }
