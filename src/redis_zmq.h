@@ -12,7 +12,7 @@ extern uint32_t redis_zmq_hash_expire_delay_ms;
 extern uint32_t redis_zmq_hash_expire_delay_jitter_ms;
 
 
-int dispatchExpiryMessage(redisDb *db, robj *key);
+int dispatchExpiryMessage(redisDb *db, robj *key, int check_expire_cycles);
 void redis_zmq_init();
 
 #endif
