@@ -654,8 +654,11 @@ void activeExpireCycle(void) {
             /* The main collection cycle. Sample random keys among keys
              * with an expire set, checking for expired ones. */
             expired = 0;
+
+            /* redisLog(REDIS_DEBUG, "NKeys eventually expiring: %i", num); */
             if (num > REDIS_EXPIRELOOKUPS_PER_CRON)
                 num = REDIS_EXPIRELOOKUPS_PER_CRON;
+            /* redisLog(REDIS_DEBUG, "NExpireLookups now: %i", num); */
             while (num--) {
                 dictEntry *de;
                 long long t;
