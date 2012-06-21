@@ -750,11 +750,12 @@ int propagateExpire(redisDb *db, robj *key) {
     incrRefCount(argv[0]);
     incrRefCount(argv[1]);
 
+    rv = dispatchExpirationMessage(db, key);
+    if (rv != 0) { /* BLOCK NOT INDENTED TO REDUCE MERGE CONFLICTS */
     if (server.aof_state != REDIS_AOF_OFF)
         feedAppendOnlyFile(server.delCommand,db->id,argv,2);
     replicationFeedSlaves(server.slaves,db->id,argv,2);
-
-    rv = dispatchExpiryMessage(db, key);
+    } /* BLOCK NOT INDENTED TO REDUCE MERGE CONFLICTS */
 
     decrRefCount(argv[0]);
     decrRefCount(argv[1]);
