@@ -664,7 +664,7 @@ void activeExpireCycle(void) {
                     decrRefCount(keyobj);
                 }
             }
-        } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/4);
+        } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/8);
     }
 }
 
