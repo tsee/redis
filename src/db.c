@@ -473,7 +473,7 @@ int propagateExpire(redisDb *db, robj *key) {
     incrRefCount(argv[0]);
     incrRefCount(argv[1]);
 
-    rv = dispatchExpirationMessage(db, key, 1);
+    rv = dispatchExpirationMessage(db, key);
     if (rv != 0) {
         if (server.aof_state != REDIS_AOF_OFF)
             feedAppendOnlyFile(server.delCommand,db->id,argv,2);
