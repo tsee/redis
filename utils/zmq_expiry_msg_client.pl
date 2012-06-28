@@ -36,5 +36,6 @@ while(1) {
   else {
     warn "  GOT UNKNOWN DATA TYPE!";
   }
+  print ".";
 }
 
