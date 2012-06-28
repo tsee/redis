@@ -85,18 +85,6 @@ void redis_zmq_init() {
 
 
 
-static int getValueFromHashTable(robj *o, robj *field, robj **value) {
-    dictEntry *de;
-
-    redisAssert(o->encoding == REDIS_ENCODING_HT);
-
-    de = dictFind(o->ptr, field);
-    if (de == NULL) return -1;
-    *value = dictGetVal(de);
-    return 0;
-}
-
-
 /* Called from the propagateExpire function. Sends a 0MQ message
  * containing the unsigned 32bit (native endianess) key length,
  * the key string, the unsigned 32bit (native endianess) value length,
@@ -196,16 +184,16 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
          * This conceptually happens as the second or later time that a record expires
          * from the database since we inserted it into the expire-db only after it
          * expired from the main db once.
-         * TODO: In this branch, we have to:
-         *       - check whether the main hash-type value has been rewritten since it first expired.
-         *         => if so, drop this key from expire db and move on.
-         *         => TODO Does this need an explicit marker or does it work to
-         *            just check whether it has an expiration set?
-         *       - dispatch a copy of the main-db hash-type value as a 0MQ msg
-         *       - get number of times we've dispatched it including this time.
-         *       - If we hit the expire-loop limit on it, delete from both dbs.
-         *       - if not, increment count in expire-db.
-         *       - reset expiration in expire-db
+         * In this branch, we have to:
+         *   - check whether the main hash-type value has been rewritten since it first expired.
+         *     => if so, drop this key from expire db and move on.
+         *     => TODO Does this need an explicit marker or does it work to
+         *        just check whether it has an expiration set?
+         *   - dispatch a copy of the main-db hash-type value as a 0MQ msg
+         *   - get number of times we've dispatched it including this time.
+         *   - If we hit the expire-loop limit on it, delete from both dbs.
+         *   - if not, increment count in expire-db.
+         *   - reset expiration in expire-db
          */
         long long expireTime;
         robj *hashVal;
