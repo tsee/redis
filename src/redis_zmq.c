@@ -121,7 +121,7 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
         return 1;
 
     /* Actually send the initial object dump now if it's a hash. */
-    redisLog(REDIS_DEBUG, "Sending Expire message for %s", (val->type == REDIS_STRING ? "string" : "hash"));
+    redisLog(REDIS_DEBUG, "Detected expiration of key with type %s", (val->type == REDIS_STRING ? "string" : "hash"));
     if (val->type == REDIS_HASH) {
         /* Only sending messages for hashes because that's what *I* need. */
         zeromqSendObject(db, key, val);
@@ -203,7 +203,7 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
         /* Just drop this key/value if the main db's key does not exist
          * or if it has no expiration set. */
         expireTime = getExpire(MAIN_DB, key);
-        if (expireTime == -1) {
+        if (expireTime != -1) {
             return 1; /* yes, delete from expire db */
         }
 
