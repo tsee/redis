@@ -96,102 +96,6 @@ static int getValueFromHashTable(robj *o, robj *field, robj **value) {
     return 0;
 }
 
-/* Returns 0 for anything but hashes.
- * For hashes, returns the number of elapsed expire cycles
- * and increments the number if applicable. */
-static int redis_zmq_check_expire_cycles(redisDb *db, robj *key, robj *o) {
-    long long nexpirecycles = 0;
-    int need_reset_expire = 0;
-
-    if (o->type == REDIS_HASH) {
-        /* Save a hash value */
-        if (o->encoding == REDIS_ENCODING_ZIPLIST) {
-            unsigned char *zl;
-            unsigned char *val = NULL;
-            unsigned int vlen = UINT_MAX;
-            long long vll = LLONG_MAX;
-            char buf[64];
-            int ret;
-
-            unsigned char *fptr;
-            unsigned char *vptr = NULL;
-            zl = o->ptr;
-
-            fptr = ziplistIndex(zl, ZIPLIST_HEAD);
-            if (fptr != NULL) {
-                fptr = ziplistFind(fptr, (unsigned char *)"_expire_cycles", 14, 1);
-                if (fptr != NULL) {
-                    /* Grab pointer to the value (fptr points to the field) */
-                    vptr = ziplistNext(zl, fptr);
-                    redisAssert(vptr != NULL);
-                }
-            }
-
-            if (vptr != NULL) {
-                ret = ziplistGet(vptr, &val, &vlen, &vll);
-                redisAssert(ret);
-                nexpirecycles = val ? atoll((char *)val) : vll;
-            }
-
-            /* increment num. expire cycles */
-            if (nexpirecycles < redis_zmq_hash_max_expire_cycles) {
-                sprintf(buf, "%u", (unsigned int)(nexpirecycles+1));
-                if (nexpirecycles > 0) { /* already have a setting */
-                    zl = ziplistDelete(zl, &vptr);
-                    zl = ziplistInsert(zl, vptr, (unsigned char *)buf, strlen(buf));
-                }
-                else { /* need to set completely new key */
-                    /* Push new field/value pair onto the tail of the ziplist */
-                    zl = ziplistPush(zl, (unsigned char *)"_expire_cycles", 14, ZIPLIST_TAIL);
-                    zl = ziplistPush(zl, (unsigned char *)buf, strlen(buf), ZIPLIST_TAIL);
-                }
-                o->ptr = zl;
-
-                need_reset_expire = 1;
-            }
-
-        } else if (o->encoding == REDIS_ENCODING_HT) {
-            unsigned char *val = NULL;
-            robj *val2 = NULL;
-            robj *name = createStringObject("_expire_cycles", 14);
-
-            getValueFromHashTable(o, name, &val2);
-            if (val2 != NULL)
-                getLongLongFromObject(val2, &nexpirecycles);
-
-            if (val != NULL) {
-                redisAssert( getLongLongFromObject(val2, &nexpirecycles) );
-            }
-            if (nexpirecycles < redis_zmq_hash_max_expire_cycles) {
-                robj *newval = createStringObjectFromLongLong(nexpirecycles+1);
-                hashTypeSet(o, name, newval);
-                decrRefCount(newval);
-                need_reset_expire = 1;
-            }
-
-            decrRefCount(name);
-        } else {
-            redisPanic("Unknown hash encoding");
-        }
-    }
-
-    if (need_reset_expire != 0) {
-        robj *cnt = createStringObjectFromLongLong(nexpirecycles+1);
-        redisLog(REDIS_DEBUG, "need_reset_expire = 1 => setting expire loop key to %u", nexpirecycles+1);
-
-        /* Create key in expire loop database, let that expire */
-        setKey(EXPIRE_DB, key, cnt);
-        setExpire(EXPIRE_DB,
-                  key,
-                  redis_zmq_expire_loop_expire_time());
-        /* main key no longer needs to expire */
-        removeExpire(MAIN_DB, key);
-        decrRefCount(cnt);
-    }
-
-    return (int)nexpirecycles;
-}
-
 
 /* Called from the propagateExpire function. Sends a 0MQ message
  * containing the unsigned 32bit (native endianess) key length,
@@ -233,40 +137,56 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
     if (val->type == REDIS_HASH) {
         /* Only sending messages for hashes because that's what *I* need. */
         zeromqSendObject(db, key, val);
-        removeExpire(db, key);
     }
 
     /* Check whether we need to cycle the key back to the db and do so
      * if necessary. */
     if (val->type == REDIS_HASH
-        && redis_zmq_hash_max_expire_cycles != 0)
+        && redis_zmq_hash_max_expire_cycles != 0
+        && db == MAIN_DB)
     {
         /* This, by definition, is the first time the hash-type value expires. That is
          * because after they expired once from the main db, hash-type values have their
-         * expiration removed. */
-        /* TODO all we have to do in this branch is:
-         *      - get rid of expiration for the hash-type value
-         *      - mark the hash-type value as having expired in the past (FIXME: Can this be determined form the lack of an expire?)
-         *      - insert key => count (==1) into the expire db
-         *      - set expiration on that
-         *      - return 0 from this function to avoid having the key delete.
+         * expiration removed.
+         * Here's what needs to happen in this case:
+         * - get rid of expiration for the hash-type value
+         * - mark the hash-type value as having expired in the past
+         *   (Right now, this be determined form the lack of an expire)
+         * - insert key => count (==1) into the expire db
+         * - set expiration on that
+         * - return 0 from this function to avoid having the key delete.
          *
-         *      Unrelated: If we write to the hash-value, we need to assert that the marker about previous expiration gets removed.
+         * If we weren't using the expiration of the key itself as a marker to say
+         * whether the key needs externally-triggered expiration, then we'd need to
+         * assert that the marker about previous expiration gets removed on writes.
          */
-        int ncycles_prev = redis_zmq_check_expire_cycles(db, key, val)+1;
-        robj *k = getDecodedObject(key);
-        redisLog(REDIS_DEBUG, "HASH: Current expire cycles for key ('%s'): %i in db %u (main db %u, expire db %u)", k->ptr, ncycles_prev, db, MAIN_DB, EXPIRE_DB);
-        decrRefCount(k);
+        robj *cnt;
 
-        /* Do not delete if we haven't hit the cycle limit yet */
-        if (ncycles_prev < redis_zmq_hash_max_expire_cycles) {
-            return 0;
+        /* Expiration now controlled by key in expire-db.
+         * The lack of an expiration on a hash-type value will be used by the
+         * expiration of the key in the expire-db to decide whether a given key
+         * has been written to. There may be a very tiny race condition in this,
+         * but it would not be of catastrophic consequences.
+         */
+        removeExpire(db, key);
+
+        /* debug output only */
+        if (1) {
+            robj *k = getDecodedObject(key);
+            redisLog(REDIS_DEBUG, "HASH: First expiration for key ('%s')", k->ptr);
+            decrRefCount(k);
         }
-        else {
-            /* delete from expire loop db, too */
-            redisLog(REDIS_DEBUG, "Deleting from expire loop db");
-            dbDelete(EXPIRE_DB, key);
-        }
+
+        cnt = createStringObjectFromLongLong(1); /* Could also try createStringObject("1", 1) */
+        /* TODO check whether we can use the same key robj* for another database */
+        /* Create key in expire loop database, let that expire */
+        setKey(EXPIRE_DB, key, cnt);
+        setExpire(EXPIRE_DB,
+                  key,
+                  redis_zmq_expire_loop_expire_time());
+        decrRefCount(cnt);
+
+        return 0;
     }
     else if (val->type == REDIS_STRING
              && redis_zmq_hash_max_expire_cycles != 0
@@ -279,63 +199,66 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
          * TODO: In this branch, we have to:
          *       - check whether the main hash-type value has been rewritten since it first expired.
          *         => if so, drop this key from expire db and move on.
-         *         => FIXME does this need an explicit marker or does it work to just check whether it has an expiration set?
+         *         => TODO Does this need an explicit marker or does it work to
+         *            just check whether it has an expiration set?
          *       - dispatch a copy of the main-db hash-type value as a 0MQ msg
          *       - get number of times we've dispatched it including this time.
          *       - If we hit the expire-loop limit on it, delete from both dbs.
          *       - if not, increment count in expire-db.
          *       - reset expiration in expire-db
          */
+        long long expireTime;
+        robj *hashVal;
+        robj *cnt;
+        long long numTimesDispatched = 0;
 
-        /* Get elapsed expire cycles */
-        long long ncycles_prev = 0;
-        dictEntry *de = dictFind(db->dict, key->ptr);
-        if (de) {
-            robj *val = dictGetVal(de);
-            if (getLongLongFromObject(val, &ncycles_prev)) {
-                redisLog(REDIS_WARNING, "Found non-integer value in expire loop db. This is a critical failure.");
-            }
-        } else {
-            return 1;
+        /* Just drop this key/value if the main db's key does not exist
+         * or if it has no expiration set. */
+        expireTime = getExpire(MAIN_DB, key);
+        if (expireTime == -1) {
+            return 1; /* yes, delete from expire db */
         }
-        ++ncycles_prev;
-        robj *k = getDecodedObject(key);
-        redisLog(REDIS_DEBUG, "STRING: Current expire cycles for key ('%s'): %i in db %u (main db %u, expire db %u)", k->ptr, ncycles_prev, db, MAIN_DB, EXPIRE_DB);
-        decrRefCount(k);
 
-        /* dispatch expiration message for key in main db */
-        /* FIXME can we "repurpose" the key this way for another db (same key name)? */
-        { /* scope */
-            robj *val;
-            redisDb *db;
-            db = MAIN_DB;
-            val = lookupKey(db, key); /* FIXME this updates expire time? Silly. *gnash teeth* */
-
-            if ( val != NULL && val->type == REDIS_HASH) {
-                redisLog(REDIS_DEBUG, "Sending Expire message for %s", (val->type == REDIS_STRING ? "string" : "hash"));
-                zeromqSendObject(db, key, val);
-                removeExpire(db, key);
-            }
-        } /* end scope */
-
-        /* Do not delete if we haven't hit the cycle limit yet */
-        if (ncycles_prev < redis_zmq_hash_max_expire_cycles) {
-            /* Re-set the expire key */
-            robj *cnt = createStringObjectFromLongLong(ncycles_prev);
-            dbDelete(EXPIRE_DB, key);
-            setKey(EXPIRE_DB, key, cnt);
-            decrRefCount(cnt);
-            setExpire(EXPIRE_DB, key, redis_zmq_expire_loop_expire_time());
-            return 0;
+        /* Get hash-type value from main db. Just delete the currently-expiring
+         * key/value if it's not a hash in the main db. */
+        hashVal = lookupKey(MAIN_DB, key);
+        if (hashVal == NULL || hashVal->type != REDIS_HASH) {
+            robj *k = getDecodedObject(key);
+            redisLog(REDIS_DEBUG, "Expire cycle for key '%s' - key not found or not a hash in main db", k->ptr);
+            decrRefCount(k);
+            return 1; /* yes, delete from expire db */
         }
-        else {
-            /* Nuke from the main db */
-            redisLog(REDIS_DEBUG, "Deleting key from main db");
-            //removeExpire(MAIN_DB, key);
+
+        /* Send copy of hash-type value from main db to expire workers. */
+        zeromqSendObject(MAIN_DB, key, hashVal);
+
+        /* Get number of expire cycles elapsed */
+        if (REDIS_OK != getLongLongFromObject(val, &numTimesDispatched)) {
+            robj *k = getDecodedObject(key);
+            redisLog(REDIS_WARNING, "Expire db appears to contain a value (for key '%s')"
+                                    " that is not a number. This is very unexpected.", k->ptr);
+            decrRefCount(k);
+            return 1; /* yes, delete from expire db */
+        }
+
+        /* Cycled enough. Ditch main db key and expire db key. */
+        if (numTimesDispatched >= redis_zmq_hash_max_expire_cycles) {
+            /* FIXME will this be propagated to slaves? */
             dbDelete(MAIN_DB, key);
+            return 1; /* yes, delete from expire db */
         }
+
+        /* Increment expire/message count in expire db, reset expiration */
+        ++numTimesDispatched;
+        cnt = createStringObjectFromLongLong(numTimesDispatched);
+        dbDelete(EXPIRE_DB, key);
+        setKey(EXPIRE_DB, key, cnt);
+        decrRefCount(cnt);
+        setExpire(EXPIRE_DB, key, redis_zmq_expire_loop_expire_time());
+        return 0; /* no, do not delete from expire db */
     }
 
+    /* Anything else can just be deleted. */
     return 1;
 }
 
