@@ -657,9 +657,9 @@ int activeExpireCycleTryExpire(redisDb *db, struct dictEntry *de, long long now)
         dbDelete(db,keyobj);
         notifyKeyspaceEvent(REDIS_NOTIFY_EXPIRED,
             "expired",keyobj,db->id);
-        decrRefCount(keyobj);
         server.stat_expiredkeys++;
         } /* BLOCK NOT INDENTED TO AVOID CONFLICTS */
+        decrRefCount(keyobj);
         return doExpire;
     } else {
         return 0;
@@ -2752,7 +2752,6 @@ int freeMemoryIfNeeded(void) {
                 server.stat_evictedkeys++;
                 notifyKeyspaceEvent(REDIS_NOTIFY_EVICTED, "evicted",
                     keyobj, db->id);
-                decrRefCount(keyobj);
                 keys_freed++;
 
                 /* When the memory to free starts to be big enough, we may
@@ -2760,7 +2759,8 @@ int freeMemoryIfNeeded(void) {
                  * deliver data to the slaves fast enough, so we force the
                  * transmission here inside the loop. */
                 if (slaves) flushSlavesOutputBuffers();
-                } /* END OF if(doExpire) BLOCK NOT INDENTED TO AVOID CONFLICTS */
+                } /* END OF if(dontExpire) BLOCK NOT INDENTED TO AVOID CONFLICTS */
+                decrRefCount(keyobj);
             }
         }
         if (!keys_freed) return REDIS_ERR; /* nothing to free... */
