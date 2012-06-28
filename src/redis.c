@@ -658,10 +658,10 @@ void activeExpireCycle(void) {
                     rv = propagateExpire(db,keyobj);
                     if (rv != 0) { /* BLOCK NOT INDENTED TO AVOID CONFLICTS */
                     dbDelete(db,keyobj);
-                    decrRefCount(keyobj);
                     expired++;
                     server.stat_expiredkeys++;
                     } /* BLOCK NOT INDENTED TO AVOID CONFLICTS */
+                    decrRefCount(keyobj);
                 }
             }
         } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/4);
@@ -2239,13 +2239,12 @@ int freeMemoryIfNeeded(void) {
                  *
                  * AOF and Output buffer memory will be freed eventually so
                  * we only care about memory used by the key space. */
-                if (dontExpire == 0) { /* BLOCK NOT INDENTED TO AVOID CONFLICTS */
+                if (dontExpire != 0) { /* BLOCK NOT INDENTED TO AVOID CONFLICTS */
                 delta = (long long) zmalloc_used_memory();
                 dbDelete(db,keyobj);
                 delta -= (long long) zmalloc_used_memory();
                 mem_freed += delta;
                 server.stat_evictedkeys++;
-                decrRefCount(keyobj);
                 keys_freed++;
 
                 /* When the memory to free starts to be big enough, we may
@@ -2254,6 +2253,7 @@ int freeMemoryIfNeeded(void) {
                  * transmission here inside the loop. */
                 if (slaves) flushSlavesOutputBuffers();
                 } /* END OF if(dontExpire) BLOCK NOT INDENTED TO AVOID CONFLICTS */
+                decrRefCount(keyobj);
             }
         }
         if (!keys_freed) return REDIS_ERR; /* nothing to free... */
