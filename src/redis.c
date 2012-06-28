@@ -685,7 +685,7 @@ void activeExpireCycle(void) {
             iteration++;
             if ((iteration & 0xf) == 0 && /* check once every 16 cycles. */
                 (ustime()-start) > timelimit) return;
-        } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/4);
+        } while (expired > REDIS_EXPIRELOOKUPS_PER_CRON/8);
     }
 }
 
