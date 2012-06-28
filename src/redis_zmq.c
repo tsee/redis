@@ -228,9 +228,10 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
     if (redis_zmq_socket == NULL)
         return 1;
 
+    /* Actually send the initial object dump now if it's a hash. */
     redisLog(REDIS_DEBUG, "Sending Expire message for %s", (val->type == REDIS_STRING ? "string" : "hash"));
     if (val->type == REDIS_HASH) {
-        /* only send messages for hashes because that's what *I* need */
+        /* Only sending messages for hashes because that's what *I* need. */
         zeromqSendObject(db, key, val);
         removeExpire(db, key);
     }
@@ -240,6 +241,18 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
     if (val->type == REDIS_HASH
         && redis_zmq_hash_max_expire_cycles != 0)
     {
+        /* This, by definition, is the first time the hash-type value expires. That is
+         * because after they expired once from the main db, hash-type values have their
+         * expiration removed. */
+        /* TODO all we have to do in this branch is:
+         *      - get rid of expiration for the hash-type value
+         *      - mark the hash-type value as having expired in the past (FIXME: Can this be determined form the lack of an expire?)
+         *      - insert key => count (==1) into the expire db
+         *      - set expiration on that
+         *      - return 0 from this function to avoid having the key delete.
+         *
+         *      Unrelated: If we write to the hash-value, we need to assert that the marker about previous expiration gets removed.
+         */
         int ncycles_prev = redis_zmq_check_expire_cycles(db, key, val)+1;
         robj *k = getDecodedObject(key);
         redisLog(REDIS_DEBUG, "HASH: Current expire cycles for key ('%s'): %i in db %u (main db %u, expire db %u)", k->ptr, ncycles_prev, db, MAIN_DB, EXPIRE_DB);
@@ -260,9 +273,19 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
              && db == EXPIRE_DB)
     {
         /* We enter this branch if we're expiring a string key from the expire-loop db.
-         * We need to check whether the number of expire cycles above the limit. If so,
-         * we check whether there's a corresponding key in the main db. Again, if so,
-         * then we can dispatch an expire message for that key in the main db. */
+         * This conceptually happens as the second or later time that a record expires
+         * from the database since we inserted it into the expire-db only after it
+         * expired from the main db once.
+         * TODO: In this branch, we have to:
+         *       - check whether the main hash-type value has been rewritten since it first expired.
+         *         => if so, drop this key from expire db and move on.
+         *         => FIXME does this need an explicit marker or does it work to just check whether it has an expiration set?
+         *       - dispatch a copy of the main-db hash-type value as a 0MQ msg
+         *       - get number of times we've dispatched it including this time.
+         *       - If we hit the expire-loop limit on it, delete from both dbs.
+         *       - if not, increment count in expire-db.
+         *       - reset expiration in expire-db
+         */
 
         /* Get elapsed expire cycles */
         long long ncycles_prev = 0;
