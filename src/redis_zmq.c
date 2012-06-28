@@ -23,6 +23,9 @@ uint32_t redis_zmq_hash_expire_delay_jitter_ms = 10*1000; /* 10s */
 uint32_t redis_zmq_main_db_num = 0; /* FIXME this is just very wrong */
 uint32_t redis_zmq_expire_loop_db_num = 1; /* FIXME this is just very wrong */
 
+#define MAIN_DB (&server.db[redis_zmq_main_db_num])
+#define EXPIRE_DB (&server.db[redis_zmq_expire_loop_db_num])
+
 static inline long long redis_zmq_expire_loop_expire_time() {
     return(
         mstime()
@@ -177,12 +180,12 @@ static int redis_zmq_check_expire_cycles(redisDb *db, robj *key, robj *o) {
         redisLog(REDIS_DEBUG, "need_reset_expire = 1 => setting expire loop key to %u", nexpirecycles+1);
 
         /* Create key in expire loop database, let that expire */
-        setKey(&server.db[redis_zmq_expire_loop_db_num], key, cnt);
-        setExpire(&server.db[redis_zmq_expire_loop_db_num],
+        setKey(EXPIRE_DB, key, cnt);
+        setExpire(EXPIRE_DB,
                   key,
                   redis_zmq_expire_loop_expire_time());
         /* main key no longer needs to expire */
-        removeExpire(&server.db[redis_zmq_main_db_num], key);
+        removeExpire(MAIN_DB, key);
         decrRefCount(cnt);
     }
 
@@ -239,7 +242,7 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
     {
         int ncycles_prev = redis_zmq_check_expire_cycles(db, key, val)+1;
         robj *k = getDecodedObject(key);
-        redisLog(REDIS_DEBUG, "HASH: Current expire cycles for key ('%s'): %i in db %u (main db %u, expire db %u)", k->ptr, ncycles_prev, db, &server.db[redis_zmq_main_db_num], &server.db[redis_zmq_expire_loop_db_num]);
+        redisLog(REDIS_DEBUG, "HASH: Current expire cycles for key ('%s'): %i in db %u (main db %u, expire db %u)", k->ptr, ncycles_prev, db, MAIN_DB, EXPIRE_DB);
         decrRefCount(k);
 
         /* Do not delete if we haven't hit the cycle limit yet */
@@ -249,12 +252,12 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
         else {
             /* delete from expire loop db, too */
             redisLog(REDIS_DEBUG, "Deleting from expire loop db");
-            dbDelete(&server.db[redis_zmq_expire_loop_db_num], key);
+            dbDelete(EXPIRE_DB, key);
         }
     }
     else if (val->type == REDIS_STRING
              && redis_zmq_hash_max_expire_cycles != 0
-             && db == &server.db[redis_zmq_expire_loop_db_num])
+             && db == EXPIRE_DB)
     {
         /* We enter this branch if we're expiring a string key from the expire-loop db.
          * We need to check whether the number of expire cycles above the limit. If so,
@@ -274,7 +277,7 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
         }
         ++ncycles_prev;
         robj *k = getDecodedObject(key);
-        redisLog(REDIS_DEBUG, "STRING: Current expire cycles for key ('%s'): %i in db %u (main db %u, expire db %u)", k->ptr, ncycles_prev, db, &server.db[redis_zmq_main_db_num], &server.db[redis_zmq_expire_loop_db_num]);
+        redisLog(REDIS_DEBUG, "STRING: Current expire cycles for key ('%s'): %i in db %u (main db %u, expire db %u)", k->ptr, ncycles_prev, db, MAIN_DB, EXPIRE_DB);
         decrRefCount(k);
 
         /* dispatch expiration message for key in main db */
@@ -282,7 +285,7 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
         { /* scope */
             robj *val;
             redisDb *db;
-            db = &server.db[redis_zmq_main_db_num];
+            db = MAIN_DB;
             val = lookupKey(db, key); /* FIXME this updates expire time? Silly. *gnash teeth* */
 
             if ( val != NULL && val->type == REDIS_HASH) {
@@ -296,17 +299,17 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
         if (ncycles_prev < redis_zmq_hash_max_expire_cycles) {
             /* Re-set the expire key */
             robj *cnt = createStringObjectFromLongLong(ncycles_prev);
-            dbDelete(&server.db[redis_zmq_expire_loop_db_num], key);
-            setKey(&server.db[redis_zmq_expire_loop_db_num], key, cnt);
+            dbDelete(EXPIRE_DB, key);
+            setKey(EXPIRE_DB, key, cnt);
             decrRefCount(cnt);
-            setExpire(&server.db[redis_zmq_expire_loop_db_num], key, redis_zmq_expire_loop_expire_time());
+            setExpire(EXPIRE_DB, key, redis_zmq_expire_loop_expire_time());
             return 0;
         }
         else {
             /* Nuke from the main db */
             redisLog(REDIS_DEBUG, "Deleting key from main db");
-            //removeExpire(&server.db[redis_zmq_main_db_num], key);
-            dbDelete(&server.db[redis_zmq_main_db_num], key);
+            //removeExpire(MAIN_DB, key);
+            dbDelete(MAIN_DB, key);
         }
     }
 
