@@ -86,7 +86,7 @@ static int rio_write_value(rio *r, robj *o) {
             }
         } else if (o->encoding == REDIS_ENCODING_HT) {
             dict *d = o->ptr;
-            dictIterator *di = dictGetIterator(d);
+            dictIterator *di = dictGetSafeIterator(d);
             dictEntry *de;
 
             if ((n = rio_write_unsigned_32bit(r, dictSize(d)*2)) == -1) return -1;
