@@ -120,10 +120,9 @@ static int zeromqSendMsgFragment(char *str, size_t len, int flags, char *on_erro
     memcpy(zmq_msg_data(&msg), str, len);
     /* bytes = zmq_msg_size(&msg); */
     rc = zmq_send(redis_zmq_socket, &msg, flags);
-    zmq_msg_close(&msg);
-    if (rc == -1) {
+    if (rc == -1)
         redisLog(REDIS_WARNING, on_error, zmq_strerror(zmq_errno()));
-    }
+    zmq_msg_close(&msg);
     return rc;
 }
 
