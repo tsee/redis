@@ -162,14 +162,19 @@ static void zeromqSendObject(redisDb *db, robj *key, robj *val) {
                                (size_t)4,
                                ZMQ_SNDMORE,
                                "Could not send header: %s");
-    rc = zeromqSendMsgFragment((char *)keystr.io.buffer.ptr,
-                               (size_t)sdslen(keystr.io.buffer.ptr),
-                               ZMQ_SNDMORE,
-                               "Could not send key: %s");
-    rc = zeromqSendMsgFragment((char *)payload.io.buffer.ptr,
-                               (size_t)sdslen(payload.io.buffer.ptr),
-                               0,
-                               "Could not send payload: %s");
+    /* don't bother sending subsequent chunks for this message if we were interrupted */
+    if (!rc) {
+        rc = zeromqSendMsgFragment((char *)keystr.io.buffer.ptr,
+                                   (size_t)sdslen(keystr.io.buffer.ptr),
+                                   ZMQ_SNDMORE,
+                                   "Could not send key: %s");
+    }
+    if (!rc) {
+        rc = zeromqSendMsgFragment((char *)payload.io.buffer.ptr,
+                                   (size_t)sdslen(payload.io.buffer.ptr),
+                                   0,
+                                   "Could not send payload: %s");
+    }
 
     sdsfree(keystr.io.buffer.ptr);
     sdsfree(payload.io.buffer.ptr);
