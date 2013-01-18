@@ -23,14 +23,14 @@ while(1) {
   my ($hdr, $raw_key, $raw_value) = @frames;
 
   my ($dbnum, $type) = unpack('vv', $hdr);
-  my ($key_str) = unpack("V/A", $raw_key);
+  my ($key_str) = unpack("V/a", $raw_key);
 
   my $value;
   if ($type == REDIS_ZMQ_TYPE_STRING) {
-    ($value) = unpack("V/A", $raw_value);
+    ($value) = unpack("V/a", $raw_value);
   }
   elsif ($type == REDIS_ZMQ_TYPE_HASH) {
-    my %h = unpack("V/(V/A)", $raw_value);
+    my %h = unpack("V/(V/a)", $raw_value);
     $value = \%h;
   }
   else {
