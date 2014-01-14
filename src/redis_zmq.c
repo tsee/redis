@@ -161,7 +161,7 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
         /* debug output only */
         if (1) {
             robj *k = getDecodedObject(key);
-            redisLog(REDIS_DEBUG, "HASH: First expiration for key ('%s')", k->ptr);
+            redisLog(REDIS_DEBUG, "HASH: First expiration for key ('%s')", (char *)k->ptr);
             decrRefCount(k);
         }
 
@@ -212,7 +212,7 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
         hashVal = lookupKey(MAIN_DB, key);
         if (hashVal == NULL || hashVal->type != REDIS_HASH) {
             robj *k = getDecodedObject(key);
-            redisLog(REDIS_DEBUG, "Expire cycle for key '%s' - key not found or not a hash in main db", k->ptr);
+            redisLog(REDIS_DEBUG, "Expire cycle for key '%s' - key not found or not a hash in main db", (char *)k->ptr);
             decrRefCount(k);
             return 1; /* yes, delete from expire db */
         }
@@ -224,7 +224,7 @@ int dispatchExpirationMessage(redisDb *db, robj *key) {
         if (REDIS_OK != getLongLongFromObject(val, &numTimesDispatched)) {
             robj *k = getDecodedObject(key);
             redisLog(REDIS_WARNING, "Expire db appears to contain a value (for key '%s')"
-                                    " that is not a number. This is very unexpected.", k->ptr);
+                                    " that is not a number. This is very unexpected.", (char *)k->ptr);
             decrRefCount(k);
             return 1; /* yes, delete from expire db */
         }
