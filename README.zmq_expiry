@@ -6,6 +6,43 @@ This file explains how the custom 0MQ expiry code works.
   messages when a key expires. This support is HIGHLY EXPERIMENTAL and NOT
   SUPPORTED BY MAINLINE REDIS!
 
+= Even more important disclaimer:
+
+  This Hacked-up 0MQ expiry facility is not used by the original
+  authors of this code anymore.
+
+  We dropped it in favor of just using the SCAN command in Redis 2.8
+  to get a list of persistent keys that all have a 'last_changed' hash
+  field set by the app that writes to those keys.
+
+  Then we just have a cronjob that does a SCAN of the keyspace, finds
+  things that have a 'last_changed' older than so-and-so and:
+
+   1. Copies them to another external storage
+   2. Starts a Redis transaction (via WATCH) to check that the key
+      hasn't been modified
+   3. If not it deletes the key from Redis
+
+  The whole reason for this 0MQ expiry facility to exist in the first
+  place was that the SCAN command didn't exist in Redis 2.6, but as we
+  found when migrating away from this code that even if you're running
+  2.6 you can trivially work around that blocking the whole Redis
+  process. You just have to run a slave whose sole purpose is to
+  receive "KEYS *" commands by a cronjob that gets a list of keys to
+  expire on the master.
+
+  We highly recommend just doing that if you need to fake hooking into
+  Redis expiry process. Using this patched version of Redis you'll
+  block the whole Redis process if the the expiry handler ever goes
+  away, and in any case the expiry handler needs to be highly
+  available.
+
+  By just doing the expiry via an external cronjob you can run a stock
+  version of Redis, and you don't have to worry about running some
+  highly available process consuming from Redis. If the expiry cronjob
+  dies your Redis memory use will just grow until you can kick it into
+  shape again.
+
 = What does this do?
 
 If configured and enabled, this customization will send a 0MQ message for
