@@ -185,6 +185,7 @@ struct redisCommand redisCommandTable[] = {
     {"zscan",zscanCommand,-3,"rR",0,NULL,1,1,1,0,0},
     {"hset",hsetCommand,4,"wm",0,NULL,1,1,1,0,0},
     {"hsetnx",hsetnxCommand,4,"wm",0,NULL,1,1,1,0,0},
+    {"hmsetck",hmsetckCommand,-6,"wm",0,NULL,1,1,1,0,0},
     {"hget",hgetCommand,3,"r",0,NULL,1,1,1,0,0},
     {"hmset",hmsetCommand,-4,"wm",0,NULL,1,1,1,0,0},
     {"hmget",hmgetCommand,-3,"r",0,NULL,1,1,1,0,0},

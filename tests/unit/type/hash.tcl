@@ -107,6 +107,70 @@ start_server {tags {"hash"}} {
         set _ $result
     } {foo}
 
+    test {HMSETCK check-key missing - small hash} {
+        r hmsetck newhash __123123123__ version1 foo bar
+        set result [r hget newhash foo]
+        set _ $result
+    } {}
+
+    test {HMSETCK check-key exists but no match - small hash} {
+        r hset newhash __123123123__ version2
+        r hmsetck newhash __123123123__ version1 foo bar
+        set result [r hget newhash foo]
+        set _ $result
+    } {}
+
+    test {HMSETCK check-key exists and matches - small hash} {
+        r hset newhash __123123123__ version1
+        r hmsetck newhash __123123123__ version1 foo bar
+        set result [r hget newhash foo]
+        r hdel newhash foo
+        set _ $result
+    } {bar}
+
+    test {HMSETCK check-key exists and matches, multi - small hash} {
+        r hset newhash __123123123__ version1
+        r hmsetck newhash __123123123__ version1 __123123123__ version2 foo bar
+        set rv {}
+        lappend rv [r hget newhash __123123123__]
+        lappend rv [r hget newhash foo]
+        r hdel newhash foo
+        set _ $rv
+    } {version2 bar}
+
+    test {HMSETCK check-key missing - big hash} {
+        for {set i 0} {$i < 1050} {incr i} {
+            set key [randstring 0 8 alpha]
+            set val [randstring 0 8 alpha]
+            r hset hmsetckbighash $key $val
+        }
+        r hmsetck hmsetckbighash __123123123__ version1 foo bar
+        r hget hmsetckbighash foo
+    } {}
+
+    test {HMSETCK check-key exists but no match - big hash} {
+        r hset hmsetckbighash __123123123__ version2
+        r hmsetck hmsetckbighash __123123123__ version1 foo bar
+        r hget hmsetckbighash foo
+    } {}
+
+    test {HMSETCK check-key exists and matches - big hash} {
+        r hset hmsetckbighash __123123123__ version1
+        r hmsetck hmsetckbighash __123123123__ version1 foo bar
+        set result [r hget hmsetckbighash foo]
+        set _ $result
+    } {bar}
+
+    test {HMSETCK check-key exists and matches, multi - big hash} {
+        r hset hmsetckbighash __123123123__ version1
+        r hdel hmsetckbighash foo
+        r hmsetck hmsetckbighash __123123123__ version1 __123123123__ version2 foo bar
+        set rv {}
+        lappend rv [r hget hmsetckbighash __123123123__]
+        lappend rv [r hget hmsetckbighash foo]
+        set _ $rv
+    } {version2 bar}
+
     test {HMSET wrong number of args} {
         catch {r hmset smallhash key1 val1 key2} err
         format $err
