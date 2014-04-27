@@ -1368,6 +1368,7 @@ void zrankCommand(redisClient *c);
 void zrevrankCommand(redisClient *c);
 void hsetCommand(redisClient *c);
 void hsetnxCommand(redisClient *c);
+void hsetckCommand(redisClient *c);
 void hgetCommand(redisClient *c);
 void hmsetCommand(redisClient *c);
 void hmgetCommand(redisClient *c);

@@ -492,6 +492,32 @@ void hsetnxCommand(redisClient *c) {
     }
 }
 
+/* HSETCK myhash checkkey checkval setkey setval */
+void hsetckCommand(redisClient *c) {
+    robj *o;
+    robj *testobj;
+    if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
+    hashTypeTryConversion(o,c->argv,4,5);
+
+    if (!hashTypeExists(o, c->argv[2])) {
+        addReply(c, shared.czero);
+        return;
+    }
+
+    testobj = hashTypeGetObject(o,c->argv[2]);
+    if (!equalStringObjects(testobj, c->argv[3])) {
+        addReply(c, shared.czero);
+    } else {
+        hashTypeTryObjectEncoding(o,&c->argv[4], &c->argv[5]);
+        hashTypeSet(o,c->argv[4],c->argv[5]);
+        addReply(c, shared.cone);
+        signalModifiedKey(c->db,c->argv[1]);
+        notifyKeyspaceEvent(REDIS_NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+        server.dirty++;
+    }
+    decrRefCount(testobj);
+}
+
 void hmsetCommand(redisClient *c) {
     int i;
     robj *o;
