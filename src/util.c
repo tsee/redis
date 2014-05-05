@@ -37,6 +37,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <float.h>
+#include <assert.h>
 
 #include "util.h"
 
@@ -240,19 +241,22 @@ int ll2string(char *s, size_t len, long long value) {
 
 /* Convert a string into a long long. Returns 1 if the string could be parsed
  * into a (non-overflowing) long long, 0 otherwise. The value will be set to
- * the parsed value when appropriate. */
+ * the parsed value when appropriate. value needs to be a ptr to a valid
+ * long long (not NULL). */
 int string2ll(const char *s, size_t slen, long long *value) {
     const char *p = s;
     size_t plen = 0;
     int negative = 0;
     unsigned long long v;
 
+    assert(value != NULL);
+
     if (plen == slen)
         return 0;
 
     /* Special case: first and only digit is 0. */
     if (slen == 1 && p[0] == '0') {
-        if (value != NULL) *value = 0;
+        *value = 0;
         return 1;
     }
 
@@ -295,11 +299,11 @@ int string2ll(const char *s, size_t slen, long long *value) {
     if (negative) {
         if (v > ((unsigned long long)(-(LLONG_MIN+1))+1)) /* Overflow. */
             return 0;
-        if (value != NULL) *value = -v;
+        *value = -v;
     } else {
         if (v > LLONG_MAX) /* Overflow. */
             return 0;
-        if (value != NULL) *value = v;
+        *value = v;
     }
     return 1;
 }

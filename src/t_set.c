@@ -39,7 +39,8 @@ void sunionDiffGenericCommand(redisClient *c, robj **setkeys, int setnum, robj *
  * an integer-encodable value, an intset will be returned. Otherwise a regular
  * hash table. */
 robj *setTypeCreate(robj *value) {
-    if (isObjectRepresentableAsLongLong(value,NULL) == REDIS_OK)
+    long long llval; /* unused other than for the check */
+    if (isObjectRepresentableAsLongLong(value,&llval) == REDIS_OK)
         return createIntsetObject();
     return createSetObject();
 }

@@ -327,8 +327,9 @@ int checkType(redisClient *c, robj *o, int type) {
 
 int isObjectRepresentableAsLongLong(robj *o, long long *llval) {
     redisAssertWithInfo(NULL,o,o->type == REDIS_STRING);
+    redisAssert(llval != NULL);
     if (o->encoding == REDIS_ENCODING_INT) {
-        if (llval) *llval = (long) o->ptr;
+        *llval = (long) o->ptr;
         return REDIS_OK;
     } else {
         return string2ll(o->ptr,sdslen(o->ptr),llval) ? REDIS_OK : REDIS_ERR;
