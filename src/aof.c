@@ -497,6 +497,7 @@ struct redisClient *createFakeClient(void) {
     c->querybuf_peak = 0;
     c->argc = 0;
     c->argv = NULL;
+    c->argv_size = 0;
     c->bufpos = 0;
     c->flags = 0;
     c->btype = REDIS_BLOCKED_NONE;
@@ -574,7 +575,10 @@ int loadAppendOnlyFile(char *filename) {
         argc = atoi(buf+1);
         if (argc < 1) goto fmterr;
 
-        argv = zmalloc(sizeof(robj*)*argc);
+        assertClientArgvSize(fakeClient, argc);
+        argv = fakeClient->argv;
+        fakeClient->argc = argc;
+
         for (j = 0; j < argc; j++) {
             if (fgets(buf,sizeof(buf),fp) == NULL) goto readerr;
             if (buf[0] != '$') goto fmterr;
@@ -592,8 +596,6 @@ int loadAppendOnlyFile(char *filename) {
             exit(1);
         }
         /* Run the command in the context of a fake client */
-        fakeClient->argc = argc;
-        fakeClient->argv = argv;
         cmd->proc(fakeClient);
 
         /* The fake client should not have a reply */
@@ -602,10 +604,11 @@ int loadAppendOnlyFile(char *filename) {
         redisAssert((fakeClient->flags & REDIS_BLOCKED) == 0);
 
         /* Clean up. Command code may have changed argv/argc so we use the
-         * argv/argc of the client instead of the local variables. */
+         * argv/argc of the client instead of the local variables.
+         * Not freeing fakeClient->argv since it can be reused. */
         for (j = 0; j < fakeClient->argc; j++)
             decrRefCount(fakeClient->argv[j]);
-        zfree(fakeClient->argv);
+        fakeClient->argc = 0;
     }
 
     /* This point can only be reached when EOF is reached without errors.
