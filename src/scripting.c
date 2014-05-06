@@ -215,7 +215,8 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
     }
 
     /* Build the arguments vector */
-    argv = zmalloc(sizeof(robj*)*argc);
+    assertClientArgvSize(c, argc);
+    argv = c->argv;
     for (j = 0; j < argc; j++) {
         if (!lua_isstring(lua,j+1)) break;
         argv[j] = createStringObject((char*)lua_tostring(lua,j+1),
@@ -231,14 +232,12 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
             decrRefCount(argv[j]);
             j--;
         }
-        zfree(argv);
         luaPushError(lua,
             "Lua redis() command arguments must be strings or integers");
         return 1;
     }
 
     /* Setup our fake client for command execution */
-    c->argv = argv;
     c->argc = argc;
 
     /* Command lookup */
@@ -333,7 +332,6 @@ cleanup:
      * argv/argc of the client instead of the local variables. */
     for (j = 0; j < c->argc; j++)
         decrRefCount(c->argv[j]);
-    zfree(c->argv);
 
     if (raise_error) {
         /* If we are here we should have an error in the stack, in the

@@ -500,6 +500,7 @@ typedef struct redisClient {
     size_t querybuf_peak;   /* Recent (100ms or more) peak of querybuf size */
     int argc;
     robj **argv;
+    size_t argv_size;
     struct redisCommand *cmd, *lastcmd;
     int reqtype;
     int multibulklen;       /* number of multi bulk arguments left to read */
@@ -966,6 +967,7 @@ void closeTimedoutClients(void);
 void freeClient(redisClient *c);
 void freeClientAsync(redisClient *c);
 void resetClient(redisClient *c);
+void assertClientArgvSize(redisClient *c, size_t newsize);
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask);
 void addReply(redisClient *c, robj *obj);
 void *addDeferredMultiBulkLength(redisClient *c);

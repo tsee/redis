@@ -115,6 +115,7 @@ void execCommand(redisClient *c) {
     int j;
     robj **orig_argv;
     int orig_argc;
+    size_t orig_argv_size;
     struct redisCommand *orig_cmd;
     int must_propagate = 0; /* Need to propagate MULTI/EXEC to AOF / slaves? */
 
@@ -140,11 +141,14 @@ void execCommand(redisClient *c) {
     unwatchAllKeys(c); /* Unwatch ASAP otherwise we'll waste CPU cycles */
     orig_argv = c->argv;
     orig_argc = c->argc;
+    orig_argv_size = c->argv_size;
     orig_cmd = c->cmd;
     addReplyMultiBulkLen(c,c->mstate.count);
     for (j = 0; j < c->mstate.count; j++) {
         c->argc = c->mstate.commands[j].argc;
         c->argv = c->mstate.commands[j].argv;
+        /* could introduce multi state argv reuse as well */
+        c->argv_size = c->mstate.commands[j].argc;
         c->cmd = c->mstate.commands[j].cmd;
 
         /* Propagate a MULTI request once we encounter the first write op.
@@ -164,6 +168,7 @@ void execCommand(redisClient *c) {
         c->mstate.commands[j].cmd = c->cmd;
     }
     c->argv = orig_argv;
+    c->argv_size = orig_argv_size;
     c->argc = orig_argc;
     c->cmd = orig_cmd;
     discardTransaction(c);

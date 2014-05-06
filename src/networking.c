@@ -52,6 +52,14 @@ size_t getStringObjectSdsUsedMemory(robj *o) {
     }
 }
 
+void assertClientArgvSize(redisClient *c, size_t newsize) {
+    if (c->argv_size < newsize) {
+        const size_t geomsize = (size_t)((c->argv_size+1) * 1.6);
+        c->argv_size = 1 + ((geomsize < newsize) ? newsize : geomsize);
+        c->argv = zrealloc(c->argv, c->argv_size * sizeof(robj *));
+    }
+}
+
 void *dupClientReplyValue(void *o) {
     incrRefCount((robj*)o);
     return o;
@@ -91,6 +99,7 @@ redisClient *createClient(int fd) {
     c->reqtype = 0;
     c->argc = 0;
     c->argv = NULL;
+    c->argv_size = 0;
     c->cmd = c->lastcmd = NULL;
     c->multibulklen = 0;
     c->bulklen = -1;
@@ -928,8 +937,7 @@ int processInlineBuffer(redisClient *c) {
     sdsrange(c->querybuf,querylen+2,-1);
 
     /* Setup argv array on client structure */
-    if (c->argv) zfree(c->argv);
-    c->argv = zmalloc(sizeof(robj*)*argc);
+    assertClientArgvSize(c, argc);
 
     /* Create redis objects for all arguments. */
     for (c->argc = 0, j = 0; j < argc; j++) {
@@ -999,8 +1007,7 @@ int processMultibulkBuffer(redisClient *c) {
         c->multibulklen = ll;
 
         /* Setup argv array on client structure */
-        if (c->argv) zfree(c->argv);
-        c->argv = zmalloc(sizeof(robj*)*c->multibulklen);
+        assertClientArgvSize(c, c->multibulklen);
     }
 
     redisAssertWithInfo(c,NULL,c->multibulklen > 0);
@@ -1435,6 +1442,7 @@ void rewriteClientCommandVector(redisClient *c, int argc, ...) {
     /* Replace argv and argc with our new versions. */
     c->argv = argv;
     c->argc = argc;
+    c->argv_size = argc; /* TODO: instead of doing any malloc/free, use the old array */
     c->cmd = lookupCommandOrOriginal(c->argv[0]->ptr);
     redisAssertWithInfo(c,NULL,c->cmd != NULL);
     va_end(ap);
