@@ -75,7 +75,7 @@ robj *createEmbeddedStringObject(char *ptr, size_t len) {
 }
 
 /* Create a string object with EMBSTR encoding if it is smaller than
- * REIDS_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
+ * REDIS_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
  * used. */
 #define REDIS_ENCODING_EMBSTR_SIZE_LIMIT 32
 robj *createStringObject(char *ptr, size_t len) {
